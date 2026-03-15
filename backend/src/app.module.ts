@@ -7,6 +7,8 @@ import { User, Account, Document, Transaction, DocumentChunk } from './entities'
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { AccountsModule } from './accounts/accounts.module';
+import { DocumentsModule } from './documents/documents.module';
+import { TransactionsModule } from './transactions/transactions.module';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { AccountsModule } from './accounts/accounts.module';
     AuthModule,
     UsersModule,
     AccountsModule,
+    DocumentsModule,
+    TransactionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
