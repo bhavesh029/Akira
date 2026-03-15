@@ -9,7 +9,7 @@ This project follows an ultra-efficient, compliance-friendly solo developer arch
 *   **Backend**: Nest.js (TypeScript) + TypeORM. A structured REST API handling authentication, document upload, and LLM integrations.
 *   **Database & Vector Store**: Supabase PostgreSQL with `pgvector`. Storing both relational business data and high-dimensional AI vectors in the exact same database.
 *   **File Storage**: Supabase Storage. Bank statement files (PDF, images) are uploaded to a private Supabase Storage bucket.
-*   **AI Infrastructure**: Designed to interface with Gemini API (using 768-dimensional embeddings via `text-embedding-004`).
+*   **AI Infrastructure**: Google Gemini 2.0 Flash for transaction extraction from bank statements. Handles both text-based PDFs (via `pdf-parse`) and scanned/image documents (via Gemini Vision multimodal). Designed for future RAG with 768-dimensional embeddings via `text-embedding-004`.
 
 ## 🗄️ Database Schema Overview
 The architecture is designed to simplify DPDP compliance (Right to Erasure) using `CASCADE` deletes across a unified PostgreSQL database.
@@ -55,6 +55,18 @@ The architecture is designed to simplify DPDP compliance (Right to Erasure) usin
 | PATCH | `/transactions/:id` | Update a transaction |
 | DELETE | `/transactions/:id` | Delete a transaction |
 
+## 🤖 AI Extraction Pipeline
+When a document is uploaded with a linked account, the backend automatically:
+
+1. Downloads the file from Supabase Storage
+2. Extracts text from PDFs using `pdf-parse`
+3. If the PDF is scanned (no text), sends the file to **Gemini Vision** (multimodal)
+4. Prompts **Gemini 2.0 Flash** to extract structured transaction data (date, amount, type, category, description)
+5. Saves extracted transactions to the database linked to the document and account
+6. Updates document status: `PENDING` → `PROCESSING` → `COMPLETED` / `FAILED`
+
+The frontend auto-polls for status updates, so users see real-time progress.
+
 ## 🚀 Getting Started (For Contributors)
 
 To run the full stack locally, you need both the frontend and backend servers running concurrently, along with a connection to a Supabase database.
@@ -63,6 +75,11 @@ To run the full stack locally, you need both the frontend and backend servers ru
 1. You must be added to the Supabase organization for this project, OR you can create your own Supabase project.
 2. In Supabase Dashboard → **Storage** → create a private bucket (e.g. `Statements`).
 3. Ask the lead developer for the `DATABASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY`.
+
+### 2. Gemini API Key
+1. Go to [https://aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+2. Create an API key (free tier available)
+3. You'll add this to the `.env` file in the next step
 
 ### 2. Backend (Nest.js) Setup
 ```bash
@@ -74,7 +91,7 @@ npm install --legacy-peer-deps
 # Setup environment variables
 cp .env.example .env
 
-# Edit .env with your database URL, JWT secret, and Supabase credentials
+# Edit .env with your database URL, JWT secret, Supabase credentials, and Gemini API key
 nano .env 
 
 # Run the development server
@@ -99,8 +116,8 @@ The React frontend will run on `http://localhost:5173`.
 2. Register a new account on the Register page
 3. After login, you'll see the Dashboard with live stats
 4. **Accounts** — Add/edit/delete bank accounts
-5. **Documents** — Upload bank statements (files stored in Supabase Storage)
-6. **Transactions** — Add/edit/delete transactions with filtering
+5. **Documents** — Upload bank statements → AI automatically extracts transactions
+6. **Transactions** — View AI-extracted + manually added transactions with filtering
 
 ## 📄 Documentation References
 For further reading on the design decisions, data privacy mandates, and business logic, refer to the following original documents inside the root folder:

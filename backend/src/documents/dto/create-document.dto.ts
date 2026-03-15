@@ -8,4 +8,8 @@ export class CreateDocumentDto {
   @IsOptional()
   @IsUUID()
   accountId?: string;
+
+  @IsOptional()
+  @IsString()
+  password?: string;
 }

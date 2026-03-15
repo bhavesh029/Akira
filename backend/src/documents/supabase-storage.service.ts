@@ -71,4 +71,22 @@ export class SupabaseStorageService {
       this.logger.warn(`Failed to delete file ${path}: ${error.message}`);
     }
   }
+
+  /**
+   * Download a file from Supabase Storage as a Buffer.
+   */
+  async download(path: string): Promise<Buffer> {
+    const { data, error } = await this.supabase.storage
+      .from(this.bucket)
+      .download(path);
+
+    if (error || !data) {
+      this.logger.error(`Failed to download file ${path}: ${error?.message}`);
+      throw new Error(`Storage download failed: ${error?.message}`);
+    }
+
+    // Convert Blob to Buffer
+    const arrayBuffer = await data.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
 }

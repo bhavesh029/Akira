@@ -25,12 +25,15 @@ export const documentsApi = {
   getOne: (id: string) =>
     api.get<DocumentItem>(`/documents/${id}`),
 
-  upload: (file: File, title: string, accountId?: string) => {
+  upload: (file: File, title: string, accountId?: string, password?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('title', title);
     if (accountId) {
       formData.append('accountId', accountId);
+    }
+    if (password) {
+      formData.append('password', password);
     }
     return api.post<DocumentItem>('/documents', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
