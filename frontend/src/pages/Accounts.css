@@ -1,0 +1,124 @@
+.accounts-page {
+  animation: fadeIn var(--transition-base);
+}
+
+.accounts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-8);
+}
+
+.accounts-title {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.accounts-subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-1);
+}
+
+.accounts-loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-16);
+}
+
+.accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-4);
+}
+
+.account-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  position: relative;
+}
+
+.account-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.account-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.account-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.account-card-bank {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.account-card-number {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  letter-spacing: 0.05em;
+}
+
+.account-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.account-card-date {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.account-card-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.account-card-delete {
+  color: var(--color-text-muted);
+}
+
+.account-card-delete:hover {
+  color: var(--color-danger) !important;
+  background-color: var(--color-danger-light) !important;
+}
+
+/* Inline delete confirmation */
+.account-delete-confirm {
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background-color: var(--color-danger-light);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(220, 38, 38, 0.1);
+}
+
+.account-delete-confirm p {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin-bottom: var(--space-3);
+  line-height: 1.4;
+}
+
+.account-delete-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
