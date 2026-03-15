@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Document } from '../entities/document.entity';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { SupabaseStorageService } from './supabase-storage.service';
+import { ExtractionService } from './extraction.service';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -13,6 +14,8 @@ export class DocumentsService {
     @InjectRepository(Document)
     private readonly documentsRepository: Repository<Document>,
     private readonly storageService: SupabaseStorageService,
+    @Inject(forwardRef(() => ExtractionService))
+    private readonly extractionService: ExtractionService,
   ) {}
 
   async upload(
@@ -39,6 +42,12 @@ export class DocumentsService {
     });
 
     const saved = await this.documentsRepository.save(document);
+
+    // Trigger AI extraction asynchronously (fire-and-forget)
+    this.extractionService.process(saved, dto.password).catch((err) => {
+      // Errors are already handled inside process(), this is a safety net
+      console.error('Extraction trigger error:', err);
+    });
 
     // Return with a signed download URL
     const download_url = await this.storageService.getSignedUrl(storagePath);

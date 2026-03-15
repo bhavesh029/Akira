@@ -46,6 +46,23 @@ export default function DocumentsPage() {
     fetchDocuments();
   }, [filterAccount]);
 
+  // Auto-poll while any document is PENDING or PROCESSING
+  useEffect(() => {
+    const hasInProgress = documents.some(
+      (d) => d.status === 'PENDING' || d.status === 'PROCESSING',
+    );
+    if (!hasInProgress) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const { data } = await documentsApi.getAll(filterAccount || undefined);
+        setDocuments(data);
+      } catch { /* ignore polling errors */ }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [documents, filterAccount]);
+
   const handleDelete = async (id: string) => {
     try {
       await documentsApi.remove(id);
@@ -185,6 +202,7 @@ function UploadModal({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState('');
+  const [password, setPassword] = useState('');
   const [accountId, setAccountId] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -223,7 +241,12 @@ function UploadModal({
     }
     setUploading(true);
     try {
-      const { data } = await documentsApi.upload(file, title.trim(), accountId || undefined);
+      const { data } = await documentsApi.upload(
+        file,
+        title.trim(),
+        accountId || undefined,
+        password || undefined,
+      );
       onComplete(data);
     } catch {
       setError('Upload failed. Please try again.');
@@ -301,6 +324,18 @@ function UploadModal({
                 <option key={a.id} value={a.id}>{a.bank_name} ({a.account_type})</option>
               ))}
             </select>
+          </div>
+
+          <div className="form-group" style={{ marginTop: '1.25rem' }}>
+            <label className="form-label" htmlFor="upload-password">PDF Password (if protected)</label>
+            <input
+              id="upload-password"
+              className="form-input"
+              type="password"
+              placeholder="e.g. your PAN or DOB"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
           </div>
 
           <div className="modal-actions">
