@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { User, Account, Document, Transaction, DocumentChunk } from './entities';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { AccountsModule } from './accounts/accounts.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     }),
     AuthModule,
     UsersModule,
+    AccountsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

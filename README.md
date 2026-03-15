@@ -5,7 +5,7 @@ Welcome to **Akira**, an Intelligent Enterprise Operations Platform designed for
 ## 🏗️ Architecture: The "Zero-Burn" Stack
 This project follows an ultra-efficient, compliance-friendly solo developer architecture.
 
-*   **Frontend**: Next.js 15 (React) + TypeScript + Tailwind CSS. A unified web platform for parsing documents and visualizing extracted bank data.
+*   **Frontend**: React 19 + Vite + TypeScript. A minimal, clean UI for managing bank accounts, parsing documents, and visualizing extracted data.
 *   **Backend**: Nest.js (TypeScript) + TypeORM. A structured REST API handling authentication, document upload chunking, and LLM integrations.
 *   **Database & Vector Store**: Supabase PostgreSQL with `pgvector`. Storing both relational business data and high-dimensional AI vectors in the exact same database.
 *   **AI Infrastructure**: Designed to interface with Gemini API (using 768-dimensional embeddings via `text-embedding-004`).
@@ -18,6 +18,23 @@ The architecture is designed to simplify DPDP compliance (Right to Erasure) usin
 3.  **Documents**: Bank statement documents pending AI processing.
 4.  **Transactions**: Extracted line-item data (Date, Amount, Vendor, Category) tied back to the specific Account and Document.
 5.  **Document Chunks**: Raw text splits and mathematical vectors (`vector(768)`) enabling Retrieval-Augmented Generation (RAG) query search.
+
+## 🔑 API Endpoints
+
+### Auth
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/register` | Register a new user (name, email, password) |
+| POST | `/auth/login` | Login and receive JWT access token |
+
+### Accounts (JWT Protected)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/accounts` | List all accounts for the authenticated user |
+| GET | `/accounts/:id` | Get a single account by ID |
+| POST | `/accounts` | Create a new bank account |
+| PATCH | `/accounts/:id` | Update an existing account |
+| DELETE | `/accounts/:id` | Delete an account (cascades) |
 
 ## 🚀 Getting Started (For Contributors)
 
@@ -45,7 +62,7 @@ npm run start:dev
 ```
 The Nest.js backend will run on `http://localhost:3000`. On the first successful run, TypeORM will automatically synchronize the tables in Supabase.
 
-### 3. Frontend (Next.js) Setup
+### 3. Frontend (React + Vite) Setup
 ```bash
 cd frontend
 
@@ -55,7 +72,13 @@ npm install
 # Run the development server
 npm run dev
 ```
-The Next.js frontend will run on `http://localhost:3001` (if the backend is already using port 3000).
+The React frontend will run on `http://localhost:5173`.
+
+### 4. Using the Application
+1. Open `http://localhost:5173` in your browser
+2. Register a new account on the Register page
+3. After login, you'll see the Dashboard
+4. Navigate to **Accounts** to add/edit/delete bank accounts
 
 ## 📄 Documentation References
 For further reading on the design decisions, data privacy mandates, and business logic, refer to the following original documents inside the root folder:
