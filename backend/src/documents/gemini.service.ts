@@ -143,4 +143,32 @@ export class GeminiService {
       return [];
     }
   }
+
+  /**
+   * Generates AI insights based on a generic prompt.
+   * Expects the LLM to return a JSON object, parsed and returned as any.
+   */
+  async generateInsights(prompt: string): Promise<any> {
+    this.logger.log('Generating AI insights...');
+    
+    const result = await this.withRetry(() =>
+      this.model.generateContent(prompt)
+    );
+    const response = result.response.text();
+
+    try {
+      let cleaned = response.trim();
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+      }
+      return JSON.parse(cleaned);
+    } catch (err) {
+      this.logger.error(`Failed to parse AI insights JSON: ${err}`);
+      return {
+        summary: "Failed to generate structured insights. Please try again.",
+        subscriptions: [],
+        anomalies: []
+      };
+    }
+  }
 }

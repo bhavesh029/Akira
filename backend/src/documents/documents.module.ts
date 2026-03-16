@@ -12,6 +12,6 @@ import { ExtractionService } from './extraction.service';
   imports: [TypeOrmModule.forFeature([Document, Transaction])],
   providers: [DocumentsService, SupabaseStorageService, GeminiService, ExtractionService],
   controllers: [DocumentsController],
-  exports: [DocumentsService, SupabaseStorageService],
+  exports: [DocumentsService, SupabaseStorageService, GeminiService],
 })
 export class DocumentsModule {}
