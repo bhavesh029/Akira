@@ -9,6 +9,7 @@ import { UsersModule } from './users/users.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { DocumentsModule } from './documents/documents.module';
 import { TransactionsModule } from './transactions/transactions.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { TransactionsModule } from './transactions/transactions.module';
     AccountsModule,
     DocumentsModule,
     TransactionsModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
