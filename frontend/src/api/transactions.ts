@@ -1,16 +1,16 @@
 import api from './client';
 
 export interface TransactionItem {
-  id: string;
+  id: number;
   transaction_date: string;
   amount: number;
   type: 'CREDIT' | 'DEBIT';
   category: string | null;
   description: string | null;
-  accountId: string;
-  documentId: string | null;
+  accountId: number;
+  documentId: number | null;
   account?: {
-    id: string;
+    id: number;
     bank_name: string;
     account_type: string;
   };
@@ -21,14 +21,14 @@ export interface CreateTransactionPayload {
   transaction_date: string;
   amount: number;
   type: 'CREDIT' | 'DEBIT';
-  accountId: string;
-  documentId?: string;
+  accountId: number;
+  documentId?: number;
   category?: string;
   description?: string;
 }
 
 export interface TransactionFilters {
-  accountId?: string;
+  accountId?: number;
   type?: 'CREDIT' | 'DEBIT';
   category?: string;
   from?: string;
@@ -39,15 +39,15 @@ export const transactionsApi = {
   getAll: (filters?: TransactionFilters) =>
     api.get<TransactionItem[]>('/transactions', { params: filters }),
 
-  getOne: (id: string) =>
+  getOne: (id: number) =>
     api.get<TransactionItem>(`/transactions/${id}`),
 
   create: (data: CreateTransactionPayload) =>
     api.post<TransactionItem>('/transactions', data),
 
-  update: (id: string, data: Partial<CreateTransactionPayload>) =>
+  update: (id: number, data: Partial<CreateTransactionPayload>) =>
     api.patch<TransactionItem>(`/transactions/${id}`, data),
 
-  remove: (id: string) =>
+  remove: (id: number) =>
     api.delete(`/transactions/${id}`),
 };

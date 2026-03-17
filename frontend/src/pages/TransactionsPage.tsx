@@ -10,10 +10,10 @@ export default function TransactionsPage() {
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingTx, setEditingTx] = useState<TransactionItem | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   // Filters
-  const [filterAccount, setFilterAccount] = useState('');
+  const [filterAccount, setFilterAccount] = useState<string>('');
   const [filterType, setFilterType] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -21,7 +21,7 @@ export default function TransactionsPage() {
     try {
       setLoading(true);
       const { data } = await transactionsApi.getAll({
-        accountId: filterAccount || undefined,
+        accountId: filterAccount ? Number(filterAccount) : undefined,
         type: (filterType as 'CREDIT' | 'DEBIT') || undefined,
       });
       setTransactions(data);
@@ -53,7 +53,7 @@ export default function TransactionsPage() {
   const openEdit = (tx: TransactionItem) => { setEditingTx(tx); setShowModal(true); };
   const closeModal = () => { setShowModal(false); setEditingTx(null); };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     try {
       await transactionsApi.remove(id);
       setTransactions((prev) => prev.filter((t) => t.id !== id));
@@ -108,7 +108,7 @@ export default function TransactionsPage() {
         />
         <select className="form-select" value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
           <option value="">All Accounts</option>
-          {accounts.map((a) => <option key={a.id} value={a.id}>{a.bank_name}</option>)}
+          {accounts.map((a) => <option key={a.id} value={String(a.id)}>{a.bank_name}</option>)}
         </select>
         <select className="form-select" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           <option value="">All Types</option>
@@ -210,7 +210,9 @@ function TransactionModal({
   const [date, setDate] = useState(transaction?.transaction_date?.split('T')[0] ?? new Date().toISOString().split('T')[0]);
   const [amount, setAmount] = useState(transaction?.amount?.toString() ?? '');
   const [type, setType] = useState<'CREDIT' | 'DEBIT'>(transaction?.type ?? 'DEBIT');
-  const [accountId, setAccountId] = useState(transaction?.accountId ?? (accounts[0]?.id || ''));
+  const [accountId, setAccountId] = useState<string>(
+    transaction?.accountId != null ? String(transaction.accountId) : accounts[0] ? String(accounts[0].id) : '',
+  );
   const [category, setCategory] = useState(transaction?.category ?? '');
   const [description, setDescription] = useState(transaction?.description ?? '');
   const [error, setError] = useState('');
@@ -228,7 +230,7 @@ function TransactionModal({
         transaction_date: date,
         amount: Number(amount),
         type,
-        accountId,
+        accountId: Number(accountId),
         ...(category ? { category } : {}),
         ...(description ? { description } : {}),
       });
@@ -273,7 +275,7 @@ function TransactionModal({
               <label className="form-label" htmlFor="tx-account">Account</label>
               <select id="tx-account" className="form-select" value={accountId} onChange={(e) => setAccountId(e.target.value)} required>
                 <option value="">Select account</option>
-                {accounts.map((a) => <option key={a.id} value={a.id}>{a.bank_name} ({a.account_type})</option>)}
+                {accounts.map((a) => <option key={a.id} value={String(a.id)}>{a.bank_name} ({a.account_type})</option>)}
               </select>
             </div>
           </div>

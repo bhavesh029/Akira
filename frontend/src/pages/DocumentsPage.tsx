@@ -16,13 +16,13 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showUpload, setShowUpload] = useState(false);
-  const [filterAccount, setFilterAccount] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [filterAccount, setFilterAccount] = useState<string>('');
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   const fetchDocuments = async () => {
     try {
       setLoading(true);
-      const { data } = await documentsApi.getAll(filterAccount || undefined);
+      const { data } = await documentsApi.getAll(filterAccount ? Number(filterAccount) : undefined);
       setDocuments(data);
     } catch {
       setError('Failed to load documents.');
@@ -55,7 +55,7 @@ export default function DocumentsPage() {
 
     const interval = setInterval(async () => {
       try {
-        const { data } = await documentsApi.getAll(filterAccount || undefined);
+        const { data } = await documentsApi.getAll(filterAccount ? Number(filterAccount) : undefined);
         setDocuments(data);
       } catch { /* ignore polling errors */ }
     }, 3000);
@@ -63,7 +63,7 @@ export default function DocumentsPage() {
     return () => clearInterval(interval);
   }, [documents, filterAccount]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     try {
       await documentsApi.remove(id);
       setDocuments((prev) => prev.filter((d) => d.id !== id));
@@ -104,7 +104,7 @@ export default function DocumentsPage() {
         >
           <option value="">All Accounts</option>
           {accounts.map((a) => (
-            <option key={a.id} value={a.id}>{a.bank_name} ({a.account_type})</option>
+            <option key={a.id} value={String(a.id)}>{a.bank_name} ({a.account_type})</option>
           ))}
         </select>
       </div>
@@ -244,7 +244,7 @@ function UploadModal({
       const { data } = await documentsApi.upload(
         file,
         title.trim(),
-        accountId || undefined,
+        accountId ? Number(accountId) : undefined,
         password || undefined,
       );
       onComplete(data);
@@ -321,7 +321,7 @@ function UploadModal({
             >
               <option value="">None</option>
               {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.bank_name} ({a.account_type})</option>
+                <option key={a.id} value={String(a.id)}>{a.bank_name} ({a.account_type})</option>
               ))}
             </select>
           </div>
