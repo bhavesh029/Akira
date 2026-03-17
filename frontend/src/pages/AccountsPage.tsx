@@ -18,7 +18,7 @@ export default function AccountsPage() {
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   const fetchAccounts = async () => {
     try {
@@ -51,7 +51,7 @@ export default function AccountsPage() {
     setEditingAccount(null);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     try {
       await accountsApi.remove(id);
       setAccounts((prev) => prev.filter((a) => a.id !== id));

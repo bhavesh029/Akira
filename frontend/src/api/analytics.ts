@@ -32,16 +32,16 @@ export interface AiInsights {
 }
 
 export const analyticsApi = {
-  getSummary: (accountId?: string, dateRange?: string) => {
-    const params: Record<string, string> = {};
-    if (accountId) params.accountId = accountId;
+  getSummary: (accountId?: number, dateRange?: string) => {
+    const params: Record<string, string | number> = {};
+    if (accountId != null) params.accountId = accountId;
     if (dateRange) params.dateRange = dateRange;
     return api.get<AnalyticsSummary>('/analytics/summary', { params });
   },
 
-  getAiInsights: (accountId?: string, dateRange?: string) => {
-    const params: Record<string, string> = {};
-    if (accountId) params.accountId = accountId;
+  getAiInsights: (accountId?: number, dateRange?: string) => {
+    const params: Record<string, string | number> = {};
+    if (accountId != null) params.accountId = accountId;
     if (dateRange) params.dateRange = dateRange;
     return api.get<AiInsights>('/analytics/ai-insights', { params });
   },

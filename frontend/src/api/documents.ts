@@ -1,14 +1,14 @@
 import api from './client';
 
 export interface DocumentItem {
-  id: string;
+  id: number;
   title: string;
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   file_url: string | null;
   download_url?: string;
-  accountId: string | null;
+  accountId: number | null;
   account?: {
-    id: string;
+    id: number;
     bank_name: string;
     account_type: string;
   };
@@ -17,20 +17,20 @@ export interface DocumentItem {
 }
 
 export const documentsApi = {
-  getAll: (accountId?: string) => {
-    const params = accountId ? { accountId } : {};
+  getAll: (accountId?: number) => {
+    const params = accountId != null ? { accountId } : {};
     return api.get<DocumentItem[]>('/documents', { params });
   },
 
-  getOne: (id: string) =>
+  getOne: (id: number) =>
     api.get<DocumentItem>(`/documents/${id}`),
 
-  upload: (file: File, title: string, accountId?: string, password?: string) => {
+  upload: (file: File, title: string, accountId?: number, password?: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('title', title);
-    if (accountId) {
-      formData.append('accountId', accountId);
+    if (accountId != null) {
+      formData.append('accountId', String(accountId));
     }
     if (password) {
       formData.append('password', password);
@@ -40,9 +40,9 @@ export const documentsApi = {
     });
   },
 
-  update: (id: string, data: { title?: string; accountId?: string }) =>
+  update: (id: number, data: { title?: string; accountId?: number }) =>
     api.patch<DocumentItem>(`/documents/${id}`, data),
 
-  remove: (id: string) =>
+  remove: (id: number) =>
     api.delete(`/documents/${id}`),
 };

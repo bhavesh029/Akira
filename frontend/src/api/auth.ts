@@ -14,7 +14,7 @@ export interface RegisterPayload {
 export interface AuthResponse {
   access_token: string;
   user: {
-    id: string;
+    id: number;
     email: string;
     role: string;
   };
