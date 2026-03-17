@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Between } from 'typeorm';
 import { Document, DocumentStatus } from '../entities/document.entity';
 import { Transaction } from '../entities/transaction.entity';
 import { SupabaseStorageService } from './supabase-storage.service';
@@ -9,6 +9,19 @@ import { PDFParse } from 'pdf-parse';
 
 // Minimum characters to consider a PDF as having usable text
 const MIN_TEXT_LENGTH = 50;
+
+/**
+ * Creates a fingerprint for deduplication. Two transactions with the same
+ * account, date, amount, type, and normalized description are considered duplicates.
+ */
+function transactionFingerprint(
+  accountId: number,
+  tx: { transaction_date: string; amount: number; type: string; description?: string },
+): string {
+  const desc = (tx.description ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const amount = Number(tx.amount).toFixed(2);
+  return `${accountId}|${tx.transaction_date}|${amount}|${tx.type}|${desc}`;
+}
 
 @Injectable()
 export class ExtractionService {
@@ -63,9 +76,58 @@ export class ExtractionService {
 
       this.logger.log(`Extracted ${extracted.length} transactions from document ${document.id}`);
 
-      // 4. Save transactions to DB
-      if (extracted.length > 0) {
-        const transactions = extracted.map((tx) =>
+      // 4. Deduplicate: filter out transactions that already exist for this account
+      let toSave = extracted;
+      if (extracted.length > 0 && document.accountId) {
+        const dates = extracted.map((t) => t.transaction_date);
+        const minDate = dates.reduce((a, b) => (a < b ? a : b));
+        const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+
+        const existing = await this.transactionsRepository.find({
+          where: {
+            accountId: document.accountId,
+            transaction_date: Between(minDate, maxDate),
+          },
+          select: ['transaction_date', 'amount', 'type', 'description'],
+        });
+
+        const existingFingerprints = new Set(
+          existing.map((t) =>
+            transactionFingerprint(document.accountId as number, {
+              transaction_date: t.transaction_date,
+              amount: t.amount as number,
+              type: t.type,
+              description: t.description ?? undefined,
+            }),
+          ),
+        );
+
+        toSave = extracted.filter(
+          (tx) => !existingFingerprints.has(transactionFingerprint(document.accountId as number, tx)),
+        );
+
+        const duplicateCount = extracted.length - toSave.length;
+        if (duplicateCount > 0) {
+          this.logger.log(
+            `Filtered out ${duplicateCount} duplicate transaction(s) for account ${document.accountId}`,
+          );
+        }
+      }
+
+      // 5. Save only new transactions to DB
+      if (toSave.length === 0 && extracted.length > 0) {
+        this.logger.log(
+          `All ${extracted.length} extracted transactions were duplicates; none saved for document ${document.id}`,
+        );
+      }
+      if (toSave.length > 0 && document.accountId == null) {
+        this.logger.log(
+          `Skipping transaction save: document ${document.id} has no linked account`,
+        );
+      }
+      if (toSave.length > 0 && document.accountId != null) {
+        const accountId = document.accountId;
+        const transactions = toSave.map((tx) =>
           this.transactionsRepository.create({
             transaction_date: tx.transaction_date,
             amount: tx.amount,
@@ -73,7 +135,7 @@ export class ExtractionService {
             description: tx.description,
             category: tx.category,
             userId: document.userId,
-            accountId: document.accountId,
+            accountId,
             documentId: document.id,
           }),
         );
@@ -82,7 +144,7 @@ export class ExtractionService {
         this.logger.log(`Saved ${transactions.length} transactions for document ${document.id}`);
       }
 
-      // 5. Mark as COMPLETED
+      // 6. Mark as COMPLETED
       await this.documentsRepository.update(document.id, {
         status: DocumentStatus.COMPLETED,
       });

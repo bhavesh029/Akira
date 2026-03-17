@@ -12,7 +12,7 @@ export class AccountsService {
     private readonly accountsRepository: Repository<Account>,
   ) {}
 
-  async create(userId: string, dto: CreateAccountDto): Promise<Account> {
+  async create(userId: number, dto: CreateAccountDto): Promise<Account> {
     const account = this.accountsRepository.create({
       ...dto,
       userId,
@@ -20,14 +20,14 @@ export class AccountsService {
     return this.accountsRepository.save(account);
   }
 
-  async findAllByUser(userId: string): Promise<Account[]> {
+  async findAllByUser(userId: number): Promise<Account[]> {
     return this.accountsRepository.find({
       where: { userId },
       order: { created_at: 'DESC' },
     });
   }
 
-  async findOne(id: string, userId: string): Promise<Account> {
+  async findOne(id: number, userId: number): Promise<Account> {
     const account = await this.accountsRepository.findOne({
       where: { id, userId },
     });
@@ -37,13 +37,13 @@ export class AccountsService {
     return account;
   }
 
-  async update(id: string, userId: string, dto: UpdateAccountDto): Promise<Account> {
+  async update(id: number, userId: number, dto: UpdateAccountDto): Promise<Account> {
     const account = await this.findOne(id, userId);
     Object.assign(account, dto);
     return this.accountsRepository.save(account);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: number, userId: number): Promise<void> {
     const account = await this.findOne(id, userId);
     await this.accountsRepository.remove(account);
   }

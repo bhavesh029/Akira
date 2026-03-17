@@ -11,7 +11,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(name: string, email: string, pass: string): Promise<{ access_token: string; user: { id: string; email: string; role: UserRole } }> {
+  async register(name: string, email: string, pass: string): Promise<{ access_token: string; user: { id: number; email: string; role: UserRole } }> {
     const existingUser = await this.usersService.findByEmail(email);
     if (existingUser) {
       throw new ConflictException('User with this email already exists');
@@ -27,7 +27,7 @@ export class AuthService {
     return this.generateToken(newUser);
   }
 
-  async login(email: string, pass: string): Promise<{ access_token: string; user: { id: string; email: string; role: UserRole } }> {
+  async login(email: string, pass: string): Promise<{ access_token: string; user: { id: number; email: string; role: UserRole } }> {
     const user = await this.usersService.findByEmail(email);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');

@@ -1,4 +1,5 @@
-import { IsDateString, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
 import { TransactionType } from '../../entities/transaction.entity';
 
 export class CreateTransactionDto {
@@ -12,12 +13,14 @@ export class CreateTransactionDto {
   @IsEnum(TransactionType)
   type: TransactionType;
 
-  @IsUUID()
-  accountId: string;
+  @IsInt()
+  @Type(() => Number)
+  accountId: number;
 
   @IsOptional()
-  @IsUUID()
-  documentId?: string;
+  @IsInt()
+  @Type(() => Number)
+  documentId?: number;
 
   @IsOptional()
   @IsString()

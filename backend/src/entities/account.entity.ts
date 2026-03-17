@@ -13,15 +13,15 @@ export enum AccountType {
 
 @Entity('accounts')
 export class Account {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
   @ManyToOne(() => User, user => user.accounts, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column({ name: 'user_id' })
-  userId: string;
+  userId: number;
 
   @Column({ type: 'varchar' })
   bank_name: string;

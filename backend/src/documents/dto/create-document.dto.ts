@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateDocumentDto {
   @IsString()
@@ -6,8 +7,9 @@ export class CreateDocumentDto {
   title: string;
 
   @IsOptional()
-  @IsUUID()
-  accountId?: string;
+  @IsInt()
+  @Type(() => Number)
+  accountId?: number;
 
   @IsOptional()
   @IsString()
