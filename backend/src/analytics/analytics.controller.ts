@@ -9,19 +9,29 @@ export class AnalyticsController {
 
   @Get('summary')
   getSummary(
-    @Req() req: any, 
+    @Req() req: any,
     @Query('accountId') accountId?: string,
-    @Query('dateRange') dateRange?: string
+    @Query('dateRange') dateRange?: string,
   ) {
-    return this.analyticsService.getSummary(req.user.id, accountId, dateRange);
+    const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
+    return this.analyticsService.getSummary(
+      req.user.id,
+      accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
+      dateRange,
+    );
   }
 
   @Get('ai-insights')
   getAiInsights(
-    @Req() req: any, 
+    @Req() req: any,
     @Query('accountId') accountId?: string,
-    @Query('dateRange') dateRange?: string
+    @Query('dateRange') dateRange?: string,
   ) {
-    return this.analyticsService.getAiInsights(req.user.id, accountId, dateRange);
+    const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
+    return this.analyticsService.getAiInsights(
+      req.user.id,
+      accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
+      dateRange,
+    );
   }
 }

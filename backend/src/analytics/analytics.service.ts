@@ -17,7 +17,7 @@ export class AnalyticsService {
     private readonly geminiService: GeminiService,
   ) {}
 
-  async getSummary(userId: string, accountId?: string, dateRange?: string) {
+  async getSummary(userId: number, accountId?: number, dateRange?: string) {
     const query = this.transactionsRepository.createQueryBuilder('tx')
       .where('tx.userId = :userId', { userId });
       
@@ -131,7 +131,7 @@ export class AnalyticsService {
     };
   }
 
-  async getAiInsights(userId: string, accountId?: string, dateRange?: string) {
+  async getAiInsights(userId: number, accountId?: number, dateRange?: string) {
     const query = this.transactionsRepository.createQueryBuilder('tx')
       .where('tx.userId = :userId', { userId })
       .orderBy('tx.transaction_date', 'DESC')

@@ -10,29 +10,29 @@ export enum TransactionType {
 
 @Entity('transactions')
 export class Transaction {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
   @ManyToOne(() => User, user => user.transactions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column({ name: 'user_id' })
-  userId: string;
+  userId: number;
 
   @ManyToOne(() => Account, account => account.transactions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
   @Column({ name: 'account_id' })
-  accountId: string;
+  accountId: number;
 
   @ManyToOne(() => Document, document => document.transactions, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'document_id' })
   document: Document;
 
   @Column({ name: 'document_id', nullable: true })
-  documentId: string;
+  documentId: number | null;
 
   @Column({ type: 'date' })
   transaction_date: string;

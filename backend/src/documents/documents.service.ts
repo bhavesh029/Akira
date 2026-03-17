@@ -19,7 +19,7 @@ export class DocumentsService {
   ) {}
 
   async upload(
-    userId: string,
+    userId: number,
     dto: CreateDocumentDto,
     file: Express.Multer.File,
   ): Promise<Document & { download_url?: string }> {
@@ -29,7 +29,7 @@ export class DocumentsService {
 
     // Generate unique storage path: userId/uuid-originalname
     const fileExt = file.originalname.split('.').pop();
-    const storagePath = `${userId}/${uuidv4()}.${fileExt}`;
+    const storagePath = `${userId}/${uuidv4()}.${fileExt}`; // uuid keeps storage paths unique
 
     // Upload to Supabase Storage
     await this.storageService.upload(storagePath, file.buffer, file.mimetype);
@@ -54,9 +54,9 @@ export class DocumentsService {
     return { ...saved, download_url };
   }
 
-  async findAllByUser(userId: string, accountId?: string): Promise<Document[]> {
+  async findAllByUser(userId: number, accountId?: number): Promise<Document[]> {
     const where: any = { userId };
-    if (accountId) {
+    if (accountId != null) {
       where.accountId = accountId;
     }
 
@@ -67,7 +67,7 @@ export class DocumentsService {
     });
   }
 
-  async findOne(id: string, userId: string): Promise<Document & { download_url?: string }> {
+  async findOne(id: number, userId: number): Promise<Document & { download_url?: string }> {
     const document = await this.documentsRepository.findOne({
       where: { id, userId },
       relations: ['account'],
@@ -90,7 +90,7 @@ export class DocumentsService {
     return { ...document, download_url };
   }
 
-  async update(id: string, userId: string, dto: UpdateDocumentDto): Promise<Document> {
+  async update(id: number, userId: number, dto: UpdateDocumentDto): Promise<Document> {
     const document = await this.documentsRepository.findOne({
       where: { id, userId },
     });
@@ -103,7 +103,7 @@ export class DocumentsService {
     return this.documentsRepository.save(document);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: number, userId: number): Promise<void> {
     const document = await this.documentsRepository.findOne({
       where: { id, userId },
     });
@@ -120,7 +120,7 @@ export class DocumentsService {
     await this.documentsRepository.remove(document);
   }
 
-  async countByUser(userId: string): Promise<number> {
+  async countByUser(userId: number): Promise<number> {
     return this.documentsRepository.count({ where: { userId } });
   }
 }

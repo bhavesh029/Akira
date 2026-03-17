@@ -6,7 +6,7 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 
 export interface TransactionFilters {
-  accountId?: string;
+  accountId?: number;
   type?: TransactionType;
   category?: string;
   from?: string; // date string
@@ -20,7 +20,7 @@ export class TransactionsService {
     private readonly transactionsRepository: Repository<Transaction>,
   ) {}
 
-  async create(userId: string, dto: CreateTransactionDto): Promise<Transaction> {
+  async create(userId: number, dto: CreateTransactionDto): Promise<Transaction> {
     const transaction = this.transactionsRepository.create({
       ...dto,
       userId,
@@ -28,7 +28,7 @@ export class TransactionsService {
     return this.transactionsRepository.save(transaction);
   }
 
-  async findAllByUser(userId: string, filters?: TransactionFilters): Promise<Transaction[]> {
+  async findAllByUser(userId: number, filters?: TransactionFilters): Promise<Transaction[]> {
     const where: FindOptionsWhere<Transaction> = { userId };
 
     if (filters?.accountId) {
@@ -51,7 +51,7 @@ export class TransactionsService {
     });
   }
 
-  async findOne(id: string, userId: string): Promise<Transaction> {
+  async findOne(id: number, userId: number): Promise<Transaction> {
     const transaction = await this.transactionsRepository.findOne({
       where: { id, userId },
       relations: ['account'],
@@ -62,7 +62,7 @@ export class TransactionsService {
     return transaction;
   }
 
-  async update(id: string, userId: string, dto: UpdateTransactionDto): Promise<Transaction> {
+  async update(id: number, userId: number, dto: UpdateTransactionDto): Promise<Transaction> {
     const transaction = await this.transactionsRepository.findOne({
       where: { id, userId },
     });
@@ -73,7 +73,7 @@ export class TransactionsService {
     return this.transactionsRepository.save(transaction);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: number, userId: number): Promise<void> {
     const transaction = await this.transactionsRepository.findOne({
       where: { id, userId },
     });
@@ -83,7 +83,7 @@ export class TransactionsService {
     await this.transactionsRepository.remove(transaction);
   }
 
-  async countByUser(userId: string): Promise<number> {
+  async countByUser(userId: number): Promise<number> {
     return this.transactionsRepository.count({ where: { userId } });
   }
 }

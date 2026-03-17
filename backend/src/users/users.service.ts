@@ -21,7 +21,7 @@ export class UsersService {
     return this.usersRepository.save(newUser);
   }
 
-  async findById(id: string): Promise<User | undefined> {
+  async findById(id: number): Promise<User | undefined> {
     const user = await this.usersRepository.findOne({ where: { id } });
     return user || undefined;
   }

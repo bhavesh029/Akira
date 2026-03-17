@@ -13,22 +13,22 @@ export enum DocumentStatus {
 
 @Entity('documents')
 export class Document {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
   @ManyToOne(() => User, user => user.documents, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column({ name: 'user_id' })
-  userId: string;
+  userId: number;
 
   @ManyToOne(() => Account, account => account.documents, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
   @Column({ name: 'account_id', nullable: true })
-  accountId: string;
+  accountId: number | null;
 
   @Column({ type: 'varchar' })
   title: string;

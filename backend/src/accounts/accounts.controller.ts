@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  ParseIntPipe,
   UseGuards,
   Req,
 } from '@nestjs/common';
@@ -30,17 +31,17 @@ export class AccountsController {
   }
 
   @Get(':id')
-  findOne(@Req() req: any, @Param('id') id: string) {
+  findOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.accountsService.findOne(id, req.user.id);
   }
 
   @Patch(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateAccountDto) {
+  update(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateAccountDto) {
     return this.accountsService.update(id, req.user.id, dto);
   }
 
   @Delete(':id')
-  remove(@Req() req: any, @Param('id') id: string) {
+  remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.accountsService.remove(id, req.user.id);
   }
 }

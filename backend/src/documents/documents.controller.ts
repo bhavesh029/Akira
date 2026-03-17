@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  ParseIntPipe,
   Query,
   UseGuards,
   UseInterceptors,
@@ -38,22 +39,29 @@ export class DocumentsController {
   }
 
   @Get()
-  findAll(@Req() req: any, @Query('accountId') accountId?: string) {
-    return this.documentsService.findAllByUser(req.user.id, accountId);
+  findAll(
+    @Req() req: any,
+    @Query('accountId') accountId?: string,
+  ) {
+    const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
+    return this.documentsService.findAllByUser(
+      req.user.id,
+      accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
+    );
   }
 
   @Get(':id')
-  findOne(@Req() req: any, @Param('id') id: string) {
+  findOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.documentsService.findOne(id, req.user.id);
   }
 
   @Patch(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateDocumentDto) {
+  update(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDocumentDto) {
     return this.documentsService.update(id, req.user.id, dto);
   }
 
   @Delete(':id')
-  remove(@Req() req: any, @Param('id') id: string) {
+  remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.documentsService.remove(id, req.user.id);
   }
 }

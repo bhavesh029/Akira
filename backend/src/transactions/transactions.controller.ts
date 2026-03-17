@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  ParseIntPipe,
   Query,
   UseGuards,
   Req,
@@ -35,8 +36,9 @@ export class TransactionsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
+    const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
     return this.transactionsService.findAllByUser(req.user.id, {
-      accountId,
+      accountId: accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
       type,
       category,
       from,
@@ -45,17 +47,17 @@ export class TransactionsController {
   }
 
   @Get(':id')
-  findOne(@Req() req: any, @Param('id') id: string) {
+  findOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.transactionsService.findOne(id, req.user.id);
   }
 
   @Patch(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateTransactionDto) {
+  update(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTransactionDto) {
     return this.transactionsService.update(id, req.user.id, dto);
   }
 
   @Delete(':id')
-  remove(@Req() req: any, @Param('id') id: string) {
+  remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.transactionsService.remove(id, req.user.id);
   }
 }
