@@ -23,23 +23,29 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<AiInsights | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
   const [loadingInsights, setLoadingInsights] = useState(true);
+  const [errorSummary, setErrorSummary] = useState<string | null>(null);
+  const [errorInsights, setErrorInsights] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState('all');
 
-  useEffect(() => {
+  const fetchData = () => {
+    setErrorSummary(null);
+    setErrorInsights(null);
     setLoadingSummary(true);
     setLoadingInsights(true);
 
-    // Fetch generic summary
     analyticsApi.getSummary(undefined, dateRange)
-      .then(res => setSummary(res.data))
-      .catch(() => {})
+      .then((res) => setSummary(res.data))
+      .catch((err) => setErrorSummary(err.response?.data?.message || 'Failed to load summary.'))
       .finally(() => setLoadingSummary(false));
 
-    // Fetch AI insights
     analyticsApi.getAiInsights(undefined, dateRange)
-      .then(res => setInsights(res.data))
-      .catch(() => {})
+      .then((res) => setInsights(res.data))
+      .catch((err) => setErrorInsights(err.response?.data?.message || 'Failed to load AI insights.'))
       .finally(() => setLoadingInsights(false));
+  };
+
+  useEffect(() => {
+    fetchData();
   }, [dateRange]);
 
   const formatCurrency = (val: number) => 
@@ -75,12 +81,23 @@ export default function DashboardPage() {
             <div className="loading-skeleton" style={{ width: '80%' }}></div>
             <div className="loading-skeleton" style={{ width: '90%' }}></div>
           </div>
+        ) : errorInsights ? (
+          <div>
+            <p className="ai-summary-text" style={{ color: 'var(--color-error)' }}>{errorInsights}</p>
+            <button type="button" className="btn btn-secondary" style={{ marginTop: '0.5rem' }} onClick={fetchData}>Retry</button>
+          </div>
         ) : (
           <p className="ai-summary-text">{insights?.summary || "Upload more bank statements to generate personalized insights."}</p>
         )}
       </div>
 
       {/* Key Metrics */}
+      {errorSummary && (
+        <div className="auth-error" style={{ marginBottom: '1rem' }}>
+          {errorSummary}
+          <button type="button" className="btn btn-secondary" style={{ marginLeft: '0.5rem' }} onClick={fetchData}>Retry</button>
+        </div>
+      )}
       {loadingSummary ? (
         <div className="metrics-grid">
           {[1,2,3,4].map(i => <div key={i} className="metric-card"><div className="loading-skeleton" /></div>)}
@@ -208,7 +225,7 @@ export default function DashboardPage() {
           {loadingInsights ? (
             <div><div className="loading-skeleton"/><div className="loading-skeleton"/></div>
           ) : insights && insights.subscriptions.length > 0 ? (
-            secretsList(insights.subscriptions)
+            subscriptionsList(insights.subscriptions)
           ) : (
              <p style={{ color: 'var(--color-text-muted)' }}>No recurring active subscriptions identified.</p>
           )}
@@ -218,7 +235,7 @@ export default function DashboardPage() {
   );
 }
 
-function secretsList(subs: any[]) {
+function subscriptionsList(subs: any[]) {
   return subs.map((s, i) => (
     <div key={i} className="list-item">
       <div>

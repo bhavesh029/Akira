@@ -6,6 +6,7 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { ExtractionService } from './extraction.service';
+import { AccountsService } from '../accounts/accounts.service';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -16,6 +17,7 @@ export class DocumentsService {
     private readonly storageService: SupabaseStorageService,
     @Inject(forwardRef(() => ExtractionService))
     private readonly extractionService: ExtractionService,
+    private readonly accountsService: AccountsService,
   ) {}
 
   async upload(
@@ -25,6 +27,11 @@ export class DocumentsService {
   ): Promise<Document & { download_url?: string }> {
     if (!file) {
       throw new BadRequestException('File is required');
+    }
+
+    // Validate account ownership if accountId is provided
+    if (dto.accountId != null) {
+      await this.accountsService.findOne(dto.accountId, userId);
     }
 
     // Generate unique storage path: userId/uuid-originalname
@@ -97,6 +104,11 @@ export class DocumentsService {
 
     if (!document) {
       throw new NotFoundException(`Document with ID "${id}" not found`);
+    }
+
+    // Validate account ownership if accountId is being updated
+    if (dto.accountId != null) {
+      await this.accountsService.findOne(dto.accountId, userId);
     }
 
     Object.assign(document, dto);

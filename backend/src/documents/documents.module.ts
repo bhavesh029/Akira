@@ -7,9 +7,13 @@ import { DocumentsController } from './documents.controller';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { GeminiService } from './gemini.service';
 import { ExtractionService } from './extraction.service';
+import { AccountsModule } from '../accounts/accounts.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Document, Transaction])],
+  imports: [
+    TypeOrmModule.forFeature([Document, Transaction]),
+    AccountsModule,
+  ],
   providers: [DocumentsService, SupabaseStorageService, GeminiService, ExtractionService],
   controllers: [DocumentsController],
   exports: [DocumentsService, SupabaseStorageService, GeminiService],

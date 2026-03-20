@@ -23,9 +23,8 @@ import { AnalyticsModule } from './analytics/analytics.module';
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
         entities: [User, Account, Document, Transaction, DocumentChunk],
-        // synchronize automatically syncs schema to the database
-        // NOTE: In production, switch to migrations!
-        synchronize: true,
+        // synchronize: true in dev only — use migrations in production
+        synchronize: process.env.NODE_ENV !== 'production',
       }),
     }),
     AuthModule,

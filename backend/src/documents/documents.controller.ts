@@ -12,12 +12,30 @@ import {
   UseInterceptors,
   UploadedFile,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'text/csv',
+];
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.csv'];
+
+function isAllowedFile(mimetype: string, originalname: string): boolean {
+  const ext = originalname.toLowerCase().slice(originalname.lastIndexOf('.'));
+  return (
+    ALLOWED_MIME_TYPES.includes(mimetype) &&
+    ALLOWED_EXTENSIONS.includes(ext)
+  );
+}
 
 @Controller('documents')
 @UseGuards(AuthGuard('jwt'))
@@ -28,6 +46,18 @@ export class DocumentsController {
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max
+      fileFilter: (_req, file, cb) => {
+        if (!isAllowedFile(file.mimetype, file.originalname)) {
+          cb(
+            new BadRequestException(
+              'Invalid file type. Allowed: PDF, PNG, JPG, JPEG, CSV.',
+            ),
+            false,
+          );
+        } else {
+          cb(null, true);
+        }
+      },
     }),
   )
   upload(

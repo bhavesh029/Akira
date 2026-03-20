@@ -4,6 +4,7 @@ import { Repository, Between, FindOptionsWhere } from 'typeorm';
 import { Transaction, TransactionType } from '../entities/transaction.entity';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import { AccountsService } from '../accounts/accounts.service';
 
 export interface TransactionFilters {
   accountId?: number;
@@ -18,9 +19,13 @@ export class TransactionsService {
   constructor(
     @InjectRepository(Transaction)
     private readonly transactionsRepository: Repository<Transaction>,
+    private readonly accountsService: AccountsService,
   ) {}
 
   async create(userId: number, dto: CreateTransactionDto): Promise<Transaction> {
+    // Validate account ownership
+    await this.accountsService.findOne(dto.accountId, userId);
+
     const transaction = this.transactionsRepository.create({
       ...dto,
       userId,
@@ -68,6 +73,10 @@ export class TransactionsService {
     });
     if (!transaction) {
       throw new NotFoundException(`Transaction with ID "${id}" not found`);
+    }
+    // Validate account ownership if accountId is being updated
+    if (dto.accountId != null) {
+      await this.accountsService.findOne(dto.accountId, userId);
     }
     Object.assign(transaction, dto);
     return this.transactionsRepository.save(transaction);

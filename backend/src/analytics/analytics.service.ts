@@ -5,6 +5,28 @@ import { Transaction } from '../entities/transaction.entity';
 import { Account } from '../entities/account.entity';
 import { GeminiService } from '../documents/gemini.service';
 
+/** Returns start date for date range without mutating the original date. */
+function getStartDateForRange(dateRange: string): Date | undefined {
+  const now = new Date();
+  const startDate = new Date(now);
+  switch (dateRange) {
+    case '1m':
+      startDate.setMonth(startDate.getMonth() - 1);
+      return startDate;
+    case '3m':
+      startDate.setMonth(startDate.getMonth() - 3);
+      return startDate;
+    case '6m':
+      startDate.setMonth(startDate.getMonth() - 6);
+      return startDate;
+    case '1y':
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      return startDate;
+    default:
+      return undefined;
+  }
+}
+
 @Injectable()
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
@@ -26,14 +48,7 @@ export class AnalyticsService {
     }
 
     if (dateRange && dateRange !== 'all') {
-      const now = new Date();
-      let startDate: Date | undefined;
-      switch (dateRange) {
-        case '1m': startDate = new Date(now.setMonth(now.getMonth() - 1)); break;
-        case '3m': startDate = new Date(now.setMonth(now.getMonth() - 3)); break;
-        case '6m': startDate = new Date(now.setMonth(now.getMonth() - 6)); break;
-        case '1y': startDate = new Date(now.setFullYear(now.getFullYear() - 1)); break;
-      }
+      const startDate = getStartDateForRange(dateRange);
       if (startDate) {
         query.andWhere('tx.transaction_date >= :startDate', { startDate });
       }
@@ -89,14 +104,7 @@ export class AnalyticsService {
 
     // Always constrain cashflow trend back to our selected date constraints if they exist
     if (dateRange && dateRange !== 'all') {
-      const now = new Date();
-      let startDate: Date | undefined;
-      switch (dateRange) {
-        case '1m': startDate = new Date(now.setMonth(now.getMonth() - 1)); break;
-        case '3m': startDate = new Date(now.setMonth(now.getMonth() - 3)); break;
-        case '6m': startDate = new Date(now.setMonth(now.getMonth() - 6)); break;
-        case '1y': startDate = new Date(now.setFullYear(now.getFullYear() - 1)); break;
-      }
+      const startDate = getStartDateForRange(dateRange);
       if (startDate) {
         cashflowQuery.andWhere('tx.transaction_date >= :startDate', { startDate });
       }
@@ -142,14 +150,7 @@ export class AnalyticsService {
     }
 
     if (dateRange && dateRange !== 'all') {
-      const now = new Date();
-      let startDate: Date | undefined;
-      switch (dateRange) {
-        case '1m': startDate = new Date(now.setMonth(now.getMonth() - 1)); break;
-        case '3m': startDate = new Date(now.setMonth(now.getMonth() - 3)); break;
-        case '6m': startDate = new Date(now.setMonth(now.getMonth() - 6)); break;
-        case '1y': startDate = new Date(now.setFullYear(now.getFullYear() - 1)); break;
-      }
+      const startDate = getStartDateForRange(dateRange);
       if (startDate) {
         query.andWhere('tx.transaction_date >= :startDate', { startDate });
       }
