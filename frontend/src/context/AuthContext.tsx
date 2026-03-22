@@ -29,8 +29,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const savedToken = localStorage.getItem('akira_token');
     const savedUser = localStorage.getItem('akira_user');
     if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
+      try {
+        setToken(savedToken);
+        setUser(JSON.parse(savedUser));
+      } catch {
+        // Corrupted or invalid user data — clear and treat as logged out
+        localStorage.removeItem('akira_token');
+        localStorage.removeItem('akira_user');
+      }
     }
     setIsLoading(false);
   }, []);

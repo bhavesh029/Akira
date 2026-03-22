@@ -1,7 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './Auth.css';
+
+/** Validates redirect param to prevent open redirect — must be a relative path starting with / */
+function getSafeRedirect(redirect: string | null): string {
+  if (!redirect) return '/';
+  const decoded = decodeURIComponent(redirect);
+  if (!decoded.startsWith('/') || decoded.startsWith('//')) return '/';
+  return decoded;
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -10,6 +18,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -17,7 +26,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/');
+      navigate(getSafeRedirect(searchParams.get('redirect')));
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid credentials. Please try again.');
     } finally {

@@ -25,8 +25,8 @@ The architecture is designed to simplify DPDP compliance (Right to Erasure) usin
 ### Auth
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/auth/register` | Register a new user (name, email, password) |
-| POST | `/auth/login` | Login and receive JWT access token |
+| POST | `/auth/register` | Register a new user. Body: `{ name, email, password }`. Password must be ≥8 characters. |
+| POST | `/auth/login` | Login and receive JWT access token. Body: `{ email, password }`. |
 
 ### Accounts (JWT Protected)
 | Method | Endpoint | Description |
@@ -42,7 +42,7 @@ The architecture is designed to simplify DPDP compliance (Right to Erasure) usin
 |--------|----------|-------------|
 | GET | `/documents` | List all documents (optional `?accountId=` filter) |
 | GET | `/documents/:id` | Get document details with signed download URL |
-| POST | `/documents` | Upload a document (multipart form: `file`, `title`, `accountId?`) |
+| POST | `/documents` | Upload a document. Multipart form: `file` (required), `title` (required), `accountId?`, `password?`. Allowed file types: PDF, PNG, JPG, JPEG, CSV. Max 20 MB. `accountId` must belong to the authenticated user. |
 | PATCH | `/documents/:id` | Update document metadata |
 | DELETE | `/documents/:id` | Delete document + file from storage |
 
@@ -51,7 +51,7 @@ The architecture is designed to simplify DPDP compliance (Right to Erasure) usin
 |--------|----------|-------------|
 | GET | `/transactions` | List transactions (filters: `accountId`, `type`, `category`, `from`, `to`) |
 | GET | `/transactions/:id` | Get a single transaction |
-| POST | `/transactions` | Create a new transaction |
+| POST | `/transactions` | Create a new transaction. `accountId` must belong to the authenticated user. |
 | PATCH | `/transactions/:id` | Update a transaction |
 | DELETE | `/transactions/:id` | Delete a transaction |
 
@@ -115,7 +115,17 @@ nano .env
 # Run the development server
 npm run start:dev
 ```
-The Nest.js backend will run on `http://localhost:3000`. On the first successful run, TypeORM will automatically synchronize the tables in Supabase.
+
+**Required environment variables** (backend validates these at startup and exits with a clear error if any are missing):
+- `DATABASE_URL` — Supabase PostgreSQL connection string
+- `JWT_SECRET` — Secret for signing JWT tokens
+- `GEMINI_API_KEY` — Google Gemini API key
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (for storage access)
+
+**Optional**: `CORS_ORIGINS` (comma-separated, e.g. `http://localhost:5173,http://localhost:3001`), `PORT`, `JWT_EXPIRATION`, `SUPABASE_STORAGE_BUCKET`.
+
+The Nest.js backend runs on `http://localhost:3000`. On the first successful run, TypeORM automatically synchronizes the schema in development. **In production** (`NODE_ENV=production`), schema sync is disabled — use migrations instead.
 
 ### 4. Frontend (React + Vite) Setup
 ```bash
@@ -127,7 +137,8 @@ npm install
 # Run the development server
 npm run dev
 ```
-The React frontend will run on `http://localhost:5173`.
+
+The React frontend runs on `http://localhost:5173`. For **production builds**, set `VITE_API_URL` in `.env` (or `.env.production`) to your backend API URL; otherwise it defaults to `http://localhost:3000`. See `frontend/.env.example`.
 
 ### 5. Using the Application
 1. Open `http://localhost:5173` in your browser
@@ -137,6 +148,13 @@ The React frontend will run on `http://localhost:5173`.
 5. **Documents** — Upload bank statements (supports password-protected PDFs) → AI automatically extracts transactions
 6. **Transactions** — View AI-extracted + manually added transactions with filtering
 7. **Dashboard Filters** — Use the time range dropdown to filter analytics by month, quarter, half-year, or year
+
+## ⚙️ Environment Variables Reference
+
+| File | Purpose |
+|------|---------|
+| `backend/.env.example` | Backend env template. Copy to `backend/.env` and fill in values. |
+| `frontend/.env.example` | Frontend env template. Copy to `frontend/.env` for production builds. |
 
 ## 📄 Documentation References
 For further reading on the design decisions, data privacy mandates, and business logic, refer to the following original documents inside the root folder:

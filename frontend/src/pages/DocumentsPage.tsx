@@ -47,10 +47,10 @@ export default function DocumentsPage() {
   }, [filterAccount]);
 
   // Auto-poll while any document is PENDING or PROCESSING
+  const hasInProgress = documents.some(
+    (d) => d.status === 'PENDING' || d.status === 'PROCESSING',
+  );
   useEffect(() => {
-    const hasInProgress = documents.some(
-      (d) => d.status === 'PENDING' || d.status === 'PROCESSING',
-    );
     if (!hasInProgress) return;
 
     const interval = setInterval(async () => {
@@ -61,7 +61,7 @@ export default function DocumentsPage() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [documents, filterAccount]);
+  }, [hasInProgress, filterAccount]);
 
   const handleDelete = async (id: number) => {
     try {
