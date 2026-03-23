@@ -162,15 +162,6 @@ export default function DocumentsPage() {
                       >
                         Delete
                       </button>
-                      {deleteConfirm === doc.id && (
-                        <div className="documents-delete-popup">
-                          <p>Delete this document?</p>
-                          <div className="documents-delete-actions">
-                            <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-                            <button className="btn btn-danger" onClick={() => handleDelete(doc.id)}>Delete</button>
-                          </div>
-                        </div>
-                      )}
                     </td>
                   </tr>
                 );
@@ -180,6 +171,14 @@ export default function DocumentsPage() {
         </div>
       )}
 
+      {deleteConfirm !== null && (
+        <DeleteConfirmModal
+          documentTitle={documents.find((d) => d.id === deleteConfirm)?.title ?? 'this document'}
+          onConfirm={() => handleDelete(deleteConfirm)}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
       {showUpload && (
         <UploadModal
           accounts={accounts}
@@ -187,6 +186,35 @@ export default function DocumentsPage() {
           onClose={() => setShowUpload(false)}
         />
       )}
+    </div>
+  );
+}
+
+/* ---------- Delete Confirm Modal ---------- */
+function DeleteConfirmModal({
+  documentTitle,
+  onConfirm,
+  onCancel,
+}: {
+  documentTitle: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Delete document</h3>
+          <button className="btn btn-ghost" onClick={onCancel}>✕</button>
+        </div>
+        <p className="documents-delete-message">
+          Delete &quot;{documentTitle}&quot;? This cannot be undone.
+        </p>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-danger" onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
     </div>
   );
 }
