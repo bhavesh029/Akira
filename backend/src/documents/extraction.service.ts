@@ -57,14 +57,29 @@ export class ExtractionService {
       let extracted: ExtractedTransaction[] = [];
 
       if (mimeType === 'application/pdf') {
-        // Try text extraction first
+        // Try text extraction first for text-based PDFs
         const parser = new PDFParse({ data: fileBuffer, password });
-        const pdfData = await parser.getText();
-        const text = pdfData.text?.trim() || '';
+        let text = '';
+        try {
+          const pdfData = await parser.getText();
+          text = pdfData.text?.trim() || '';
+        } finally {
+          await parser.destroy();
+        }
 
         if (text.length >= MIN_TEXT_LENGTH) {
           this.logger.log(`PDF has ${text.length} chars of text, using text extraction`);
           extracted = await this.geminiService.extractTransactionsFromText(text);
+          // Fallback: if text extraction yields nothing, retry with vision (handles garbled/feeble text)
+          if (extracted.length === 0) {
+            this.logger.log(
+              'Text extraction returned 0 transactions, retrying with vision for better OCR',
+            );
+            extracted = await this.geminiService.extractTransactionsFromFile(
+              fileBuffer,
+              mimeType,
+            );
+          }
         } else {
           this.logger.log('PDF has little/no text, using multimodal vision extraction');
           extracted = await this.geminiService.extractTransactionsFromFile(fileBuffer, mimeType);
