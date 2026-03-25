@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Transaction, TransactionType } from '../entities/transaction.entity';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
@@ -12,7 +12,23 @@ export interface TransactionFilters {
   category?: string;
   from?: string; // date string
   to?: string;   // date string
+  /** Case-insensitive match on description or category (PostgreSQL ILIKE) */
+  search?: string;
+  page?: number;
+  limit?: number;
 }
+
+export interface PaginatedTransactionsResult {
+  data: Transaction[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
 
 @Injectable()
 export class TransactionsService {
@@ -33,27 +49,44 @@ export class TransactionsService {
     return this.transactionsRepository.save(transaction);
   }
 
-  async findAllByUser(userId: number, filters?: TransactionFilters): Promise<Transaction[]> {
-    const where: FindOptionsWhere<Transaction> = { userId };
+  async findAllByUser(userId: number, filters?: TransactionFilters): Promise<PaginatedTransactionsResult> {
+    const page = Math.max(1, filters?.page ?? DEFAULT_PAGE);
+    const limit = Math.min(MAX_LIMIT, Math.max(1, filters?.limit ?? DEFAULT_LIMIT));
+    const skip = (page - 1) * limit;
+
+    const qb = this.transactionsRepository
+      .createQueryBuilder('tx')
+      .leftJoinAndSelect('tx.account', 'account')
+      .where('tx.userId = :userId', { userId });
 
     if (filters?.accountId) {
-      where.accountId = filters.accountId;
+      qb.andWhere('tx.accountId = :accountId', { accountId: filters.accountId });
     }
     if (filters?.type) {
-      where.type = filters.type;
+      qb.andWhere('tx.type = :type', { type: filters.type });
     }
     if (filters?.category) {
-      where.category = filters.category;
+      qb.andWhere('tx.category = :category', { category: filters.category });
     }
     if (filters?.from && filters?.to) {
-      where.transaction_date = Between(filters.from, filters.to) as any;
+      qb.andWhere('tx.transaction_date BETWEEN :from AND :to', {
+        from: filters.from,
+        to: filters.to,
+      });
+    }
+    const search = filters?.search?.trim();
+    if (search) {
+      qb.andWhere('(tx.description ILIKE :search OR tx.category ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
-    return this.transactionsRepository.find({
-      where,
-      relations: ['account'],
-      order: { transaction_date: 'DESC', created_at: 'DESC' },
-    });
+    qb.orderBy('tx.transaction_date', 'DESC').addOrderBy('tx.created_at', 'DESC');
+
+    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return { data, total, page, limit, totalPages };
   }
 
   async findOne(id: number, userId: number): Promise<Transaction> {

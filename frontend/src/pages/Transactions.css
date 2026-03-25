@@ -43,6 +43,34 @@
   padding: var(--space-16);
 }
 
+.transactions-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: 0 var(--space-1);
+}
+
+.transactions-pagination-info {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.transactions-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.transactions-pagination-page {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  min-width: 6.5rem;
+  text-align: center;
+}
+
 /* Table */
 .transactions-table-wrap {
   background-color: var(--color-surface);
