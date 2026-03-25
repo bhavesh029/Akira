@@ -35,14 +35,22 @@ export class TransactionsController {
     @Query('category') category?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
+    const pageNum = page ? parseInt(page, 10) : undefined;
+    const limitNum = limit ? parseInt(limit, 10) : undefined;
     return this.transactionsService.findAllByUser(req.user.id, {
       accountId: accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
       type,
       category,
       from,
       to,
+      search: search?.trim() || undefined,
+      page: pageNum != null && !isNaN(pageNum) ? pageNum : undefined,
+      limit: limitNum != null && !isNaN(limitNum) ? limitNum : undefined,
     });
   }
 

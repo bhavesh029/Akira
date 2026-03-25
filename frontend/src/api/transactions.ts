@@ -33,11 +33,23 @@ export interface TransactionFilters {
   category?: string;
   from?: string;
   to?: string;
+  /** Server-side search on description and category */
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedTransactionsResponse {
+  data: TransactionItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export const transactionsApi = {
   getAll: (filters?: TransactionFilters) =>
-    api.get<TransactionItem[]>('/transactions', { params: filters }),
+    api.get<PaginatedTransactionsResponse>('/transactions', { params: filters }),
 
   getOne: (id: number) =>
     api.get<TransactionItem>(`/transactions/${id}`),

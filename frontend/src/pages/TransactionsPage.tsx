@@ -3,8 +3,13 @@ import { transactionsApi, type TransactionItem, type CreateTransactionPayload } 
 import { accountsApi, type Account } from '../api/accounts';
 import './Transactions.css';
 
+const PAGE_SIZE = 20;
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [page, setPage] = useState(1);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -16,38 +21,60 @@ export default function TransactionsPage() {
   const [filterAccount, setFilterAccount] = useState<string>('');
   const [filterType, setFilterType] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [listVersion, setListVersion] = useState(0);
 
-  const fetchTransactions = async () => {
-    try {
-      setLoading(true);
-      const { data } = await transactionsApi.getAll({
-        accountId: filterAccount ? Number(filterAccount) : undefined,
-        type: (filterType as 'CREDIT' | 'DEBIT') || undefined,
-      });
-      setTransactions(data);
-    } catch {
-      setError('Failed to load transactions.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setPage(1);
+    }, 400);
+    return () => window.clearTimeout(id);
+  }, [searchTerm]);
 
   useEffect(() => {
     accountsApi.getAll().then(({ data }) => setAccounts(data)).catch(() => {});
   }, []);
 
   useEffect(() => {
-    fetchTransactions();
-  }, [filterAccount, filterType]);
-
-  const filtered = transactions.filter((tx) => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      tx.description?.toLowerCase().includes(term) ||
-      tx.category?.toLowerCase().includes(term)
-    );
-  });
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
+        let pageToUse = page;
+        const params = {
+          accountId: filterAccount ? Number(filterAccount) : undefined,
+          type: (filterType as 'CREDIT' | 'DEBIT') || undefined,
+          search: debouncedSearch.trim() || undefined,
+          page: pageToUse,
+          limit: PAGE_SIZE,
+        };
+        let { data: res } = await transactionsApi.getAll(params);
+        if (res.totalPages > 0 && pageToUse > res.totalPages) {
+          pageToUse = res.totalPages;
+          setPage(pageToUse);
+          ({ data: res } = await transactionsApi.getAll({ ...params, page: pageToUse }));
+        }
+        if (!cancelled) {
+          setTransactions(res.data);
+          setTotal(res.total);
+          setTotalPages(res.totalPages);
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Failed to load transactions.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [filterAccount, filterType, debouncedSearch, page, listVersion]);
 
   const openCreate = () => { setEditingTx(null); setShowModal(true); };
   const openEdit = (tx: TransactionItem) => { setEditingTx(tx); setShowModal(true); };
@@ -56,20 +83,22 @@ export default function TransactionsPage() {
   const handleDelete = async (id: number) => {
     try {
       await transactionsApi.remove(id);
-      setTransactions((prev) => prev.filter((t) => t.id !== id));
       setDeleteConfirm(null);
-    } catch { setError('Failed to delete.'); }
+      setListVersion((v) => v + 1);
+    } catch {
+      setError('Failed to delete.');
+    }
   };
 
   const handleSave = async (data: CreateTransactionPayload) => {
     if (editingTx) {
-      const { data: updated } = await transactionsApi.update(editingTx.id, data);
-      setTransactions((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+      await transactionsApi.update(editingTx.id, data);
     } else {
-      const { data: created } = await transactionsApi.create(data);
-      setTransactions((prev) => [created, ...prev]);
+      await transactionsApi.create(data);
+      setPage(1);
     }
     closeModal();
+    setListVersion((v) => v + 1);
   };
 
   const formatAmount = (amount: number, type: string) => {
@@ -106,11 +135,25 @@ export default function TransactionsPage() {
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
-        <select className="form-select" value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
+        <select
+          className="form-select"
+          value={filterAccount}
+          onChange={(e) => {
+            setFilterAccount(e.target.value);
+            setPage(1);
+          }}
+        >
           <option value="">All Accounts</option>
           {accounts.map((a) => <option key={a.id} value={String(a.id)}>{a.bank_name}</option>)}
         </select>
-        <select className="form-select" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+        <select
+          className="form-select"
+          value={filterType}
+          onChange={(e) => {
+            setFilterType(e.target.value);
+            setPage(1);
+          }}
+        >
           <option value="">All Types</option>
           <option value="CREDIT">Credit</option>
           <option value="DEBIT">Debit</option>
@@ -121,20 +164,21 @@ export default function TransactionsPage() {
 
       {loading ? (
         <div className="transactions-loading"><span className="spinner" /></div>
-      ) : filtered.length === 0 ? (
+      ) : transactions.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">💳</div>
-          <h3 className="empty-state-title">{transactions.length === 0 ? 'No transactions yet' : 'No matching transactions'}</h3>
+          <h3 className="empty-state-title">{total === 0 ? 'No transactions yet' : 'No matching transactions'}</h3>
           <p className="empty-state-text">
-            {transactions.length === 0
+            {total === 0
               ? 'Add your first transaction or upload a document for AI extraction.'
               : 'Try adjusting your search or filters.'}
           </p>
-          {transactions.length === 0 && (
+          {total === 0 && (
             <button className="btn btn-primary" onClick={openCreate}>Add Transaction</button>
           )}
         </div>
       ) : (
+        <>
         <div className="transactions-table-wrap">
           <table className="transactions-table">
             <thead>
@@ -148,7 +192,7 @@ export default function TransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((tx) => (
+              {transactions.map((tx) => (
                 <tr key={tx.id}>
                   <td className="transactions-date">
                     {new Date(tx.transaction_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -181,6 +225,35 @@ export default function TransactionsPage() {
             </tbody>
           </table>
         </div>
+        <div className="transactions-pagination">
+          <p className="transactions-pagination-info">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+          </p>
+          {totalPages > 1 && (
+            <div className="transactions-pagination-controls">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <span className="transactions-pagination-page">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+        </>
       )}
 
       {showModal && (
