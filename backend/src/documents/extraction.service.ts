@@ -6,6 +6,7 @@ import { Transaction } from '../entities/transaction.entity';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { GeminiService, ExtractedTransaction } from './gemini.service';
 import { PDFParse } from 'pdf-parse';
+import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
 
 // Minimum characters to consider a PDF as having usable text
 const MIN_TEXT_LENGTH = 50;
@@ -34,6 +35,7 @@ export class ExtractionService {
     private readonly transactionsRepository: Repository<Transaction>,
     private readonly storageService: SupabaseStorageService,
     private readonly geminiService: GeminiService,
+    private readonly aiInsightsCache: AiInsightsCacheService,
   ) {}
 
   /**
@@ -156,6 +158,7 @@ export class ExtractionService {
         );
 
         await this.transactionsRepository.save(transactions);
+        this.aiInsightsCache.invalidateForUser(document.userId);
         this.logger.log(`Saved ${transactions.length} transactions for document ${document.id}`);
       }
 

@@ -98,7 +98,7 @@
   min-width: 0;
 }
 
-.sidebar-user-email {
+.sidebar-user-name {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);

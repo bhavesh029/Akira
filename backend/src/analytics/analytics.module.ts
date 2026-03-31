@@ -5,11 +5,13 @@ import { AnalyticsController } from './analytics.controller';
 import { Transaction } from '../entities/transaction.entity';
 import { Account } from '../entities/account.entity';
 import { DocumentsModule } from '../documents/documents.module';
+import { AiInsightsCacheModule } from './ai-insights-cache.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Transaction, Account]),
     DocumentsModule,
+    AiInsightsCacheModule,
   ],
   providers: [AnalyticsService],
   controllers: [AnalyticsController]

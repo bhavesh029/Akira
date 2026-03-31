@@ -56,7 +56,7 @@ export default function DashboardPage() {
       <div className="dashboard-header">
         <div>
           <h2 className="dashboard-title">Financial Overview</h2>
-          <p className="dashboard-subtitle">Welcome back, {user?.email}</p>
+          <p className="dashboard-subtitle">Welcome back, {user?.name?.trim() || user?.email}</p>
         </div>
         <select 
           className="date-range-select" 

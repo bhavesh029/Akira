@@ -75,10 +75,10 @@ export default function Layout() {
         <div className="sidebar-footer">
           <div className="sidebar-user">
             <div className="sidebar-avatar">
-              {user?.email?.charAt(0).toUpperCase()}
+              {(user?.name?.trim() || user?.email || '?').charAt(0).toUpperCase()}
             </div>
             <div className="sidebar-user-info">
-              <span className="sidebar-user-email">{user?.email}</span>
+              <span className="sidebar-user-name">{user?.name?.trim() || user?.email}</span>
               <span className="sidebar-user-role">{user?.role}</span>
             </div>
           </div>
