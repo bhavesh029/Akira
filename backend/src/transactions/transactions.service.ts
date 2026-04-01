@@ -5,6 +5,7 @@ import { Transaction, TransactionType } from '../entities/transaction.entity';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { AccountsService } from '../accounts/accounts.service';
+import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
 
 export interface TransactionFilters {
   accountId?: number;
@@ -36,6 +37,7 @@ export class TransactionsService {
     @InjectRepository(Transaction)
     private readonly transactionsRepository: Repository<Transaction>,
     private readonly accountsService: AccountsService,
+    private readonly aiInsightsCache: AiInsightsCacheService,
   ) {}
 
   async create(userId: number, dto: CreateTransactionDto): Promise<Transaction> {
@@ -46,7 +48,9 @@ export class TransactionsService {
       ...dto,
       userId,
     });
-    return this.transactionsRepository.save(transaction);
+    const saved = await this.transactionsRepository.save(transaction);
+    this.aiInsightsCache.invalidateForUser(userId);
+    return saved;
   }
 
   async findAllByUser(userId: number, filters?: TransactionFilters): Promise<PaginatedTransactionsResult> {
@@ -112,7 +116,9 @@ export class TransactionsService {
       await this.accountsService.findOne(dto.accountId, userId);
     }
     Object.assign(transaction, dto);
-    return this.transactionsRepository.save(transaction);
+    const saved = await this.transactionsRepository.save(transaction);
+    this.aiInsightsCache.invalidateForUser(userId);
+    return saved;
   }
 
   async remove(id: number, userId: number): Promise<void> {
@@ -123,6 +129,7 @@ export class TransactionsService {
       throw new NotFoundException(`Transaction with ID "${id}" not found`);
     }
     await this.transactionsRepository.remove(transaction);
+    this.aiInsightsCache.invalidateForUser(userId);
   }
 
   async countByUser(userId: number): Promise<number> {

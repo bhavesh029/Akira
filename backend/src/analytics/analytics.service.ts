@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Transaction } from '../entities/transaction.entity';
 import { Account } from '../entities/account.entity';
 import { GeminiService } from '../documents/gemini.service';
+import { AiInsightsCacheService } from './ai-insights-cache.service';
 
 /** Returns start date for date range without mutating the original date. */
 function getStartDateForRange(dateRange: string): Date | undefined {
@@ -37,6 +38,7 @@ export class AnalyticsService {
     @InjectRepository(Account)
     private readonly accountsRepository: Repository<Account>,
     private readonly geminiService: GeminiService,
+    private readonly aiInsightsCache: AiInsightsCacheService,
   ) {}
 
   async getSummary(userId: number, accountId?: number, dateRange?: string) {
@@ -140,6 +142,12 @@ export class AnalyticsService {
   }
 
   async getAiInsights(userId: number, accountId?: number, dateRange?: string) {
+    const cacheKey = this.aiInsightsCache.makeKey(userId, accountId, dateRange);
+    const cached = this.aiInsightsCache.get<Record<string, unknown>>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const query = this.transactionsRepository.createQueryBuilder('tx')
       .where('tx.userId = :userId', { userId })
       .orderBy('tx.transaction_date', 'DESC')
@@ -159,11 +167,13 @@ export class AnalyticsService {
     const recentTx = await query.getMany();
 
     if (recentTx.length === 0) {
-      return {
+      const empty = {
         summary: "Not enough transactions to generate insights yet.",
         subscriptions: [],
         anomalies: []
       };
+      this.aiInsightsCache.set(cacheKey, empty);
+      return empty;
     }
 
     const txString = JSON.stringify(recentTx.map(t => ({
@@ -192,6 +202,8 @@ If no clear subscriptions or anomalies are identified, return empty arrays for t
 Transactions:
 ${txString}`;
 
-    return this.geminiService.generateInsights(prompt);
+    const insights = await this.geminiService.generateInsights(prompt);
+    this.aiInsightsCache.set(cacheKey, insights);
+    return insights;
   }
 }

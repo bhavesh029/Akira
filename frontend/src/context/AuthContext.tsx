@@ -3,6 +3,8 @@ import { authApi, type AuthResponse } from '../api/auth';
 
 interface User {
   id: number;
+  /** Present for sessions created before name was returned by the API. */
+  name?: string;
   email: string;
   role: string;
 }
