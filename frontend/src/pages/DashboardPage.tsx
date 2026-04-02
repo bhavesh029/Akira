@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { analyticsApi, type AnalyticsSummary, type AiInsights } from '../api/analytics';
+
+type ChatMessage = { role: 'user' | 'assistant'; text: string };
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -26,6 +28,10 @@ export default function DashboardPage() {
   const [errorSummary, setErrorSummary] = useState<string | null>(null);
   const [errorInsights, setErrorInsights] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState('all');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   const fetchData = () => {
     setErrorSummary(null);
@@ -50,6 +56,26 @@ export default function DashboardPage() {
 
   const formatCurrency = (val: number) => 
     new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val);
+
+  const sendChat = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+    setChatError(null);
+    setChatMessages((m) => [...m, { role: 'user', text }]);
+    setChatInput('');
+    setChatLoading(true);
+    try {
+      const { data } = await analyticsApi.chat(text);
+      setChatMessages((m) => [...m, { role: 'assistant', text: data.answer }]);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'Failed to get a reply.';
+      setChatError(msg);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   return (
     <div className="dashboard">
@@ -89,6 +115,56 @@ export default function DashboardPage() {
         ) : (
           <p className="ai-summary-text">{insights?.summary || "Upload more bank statements to generate personalized insights."}</p>
         )}
+      </div>
+
+      <div className="dashboard-chat-card">
+        <div className="dashboard-chat-header">
+          <span className="dashboard-chat-icon">💬</span>
+          <span>Ask your transactions</span>
+        </div>
+        <p className="dashboard-chat-hint">
+          Answers use your imported data. Examples: “How much did I spend this month?”, “Top category last month”, “Did I spend ₹10,000 from HDFC in March?”
+        </p>
+        <div className="chat-messages" aria-live="polite">
+          {chatMessages.length === 0 && !chatLoading && (
+            <p className="chat-empty">Ask a question to get started.</p>
+          )}
+          {chatMessages.map((msg, i) => (
+            <div
+              key={i}
+              className={`chat-bubble ${msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-assistant'}`}
+            >
+              {msg.text}
+            </div>
+          ))}
+          {chatLoading && (
+            <div className="chat-bubble chat-bubble-assistant chat-bubble-loading">
+              <span className="spinner" style={{ width: 18, height: 18 }} />
+              Thinking…
+            </div>
+          )}
+        </div>
+        {chatError && <p className="auth-error" style={{ marginBottom: '0.5rem' }}>{chatError}</p>}
+        <div className="chat-input-row">
+          <input
+            type="text"
+            className="chat-input"
+            placeholder="Ask about spending, categories, banks…"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendChat()}
+            disabled={chatLoading}
+            maxLength={4000}
+          />
+          <button
+            type="button"
+            className="btn btn-primary chat-send"
+            onClick={sendChat}
+            disabled={chatLoading || !chatInput.trim()}
+          >
+            Send
+          </button>
+        </div>
       </div>
 
       {/* Key Metrics */}

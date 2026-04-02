@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import type {
+  FinanceChatFilters,
+  FinanceChatIntent,
+  FinanceChatParseResult,
+  FinanceChatRelative,
+} from '../analytics/finance-chat.types';
 
 export interface ExtractedTransaction {
   transaction_date: string;
@@ -258,5 +264,156 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
         anomalies: []
       };
     }
+  }
+
+  /**
+   * Maps a natural-language finance question to a structured intent + filters (JSON only).
+   */
+  async parseFinanceChatIntent(
+    userMessage: string,
+    accounts: { id: number; bank_name: string }[],
+    todayIso: string,
+  ): Promise<FinanceChatParseResult> {
+    const accountsJson = JSON.stringify(accounts);
+    const prompt = `You map user questions about their own transaction data to a strict JSON plan. Output JSON ONLY, no markdown.
+
+Today's date (YYYY-MM-DD): ${todayIso}
+
+User's accounts (use accountId only if the user clearly refers to a specific account id; prefer bankName for bank names):
+${accountsJson}
+
+Intent values (pick exactly one):
+- sum_debits: total spending (outflow / debits) in the period
+- sum_credits: total income / credits in the period
+- net_flow: net cashflow (credits minus debits) in the period
+- top_category: which category had the highest debit spending in the period
+- compare_amount: user asks whether they spent/received/debited/credited a specific amount or threshold (e.g. "did I spend 10k", "at least 5000") — set filters.amount and filters.compareOp
+- investment_estimate: questions about investments, SIP, mutual funds, stocks, FD — we match debit transactions whose category/description suggests investments
+- clarify: required information is missing (which bank, which dates, etc.)
+- unknown: not answerable from transaction aggregates (chitchat, unsupported)
+
+Filters:
+- from, to: explicit YYYY-MM-DD if the user gave concrete dates; else null
+- relative: use when dates are vague — this_month (calendar month start through today), last_month, last_7_days, last_30_days, this_year, all — or null if from/to are set
+- accountId: number if user clearly picks one account id from the list; else null
+- bankName: short substring to match bank_name (e.g. "HDFC", "SBI") if user names a bank; else null
+- category: if user asks about a specific category name; else null
+- amount: numeric threshold in INR when comparing (e.g. 10000 for "10k"); else null
+- compareOp: for compare_amount — gte (at least / more than), lte (at most / less than), eq (exactly); default gte when user asks "did I spend 10k" meaning at least
+
+Return exactly this JSON shape:
+{"intent":"...","filters":{"from":null,"to":null,"relative":null,"accountId":null,"bankName":null,"category":null,"amount":null,"compareOp":null},"clarifyMessage":null}
+
+If intent is clarify, set clarifyMessage to a single short question for the user.
+
+User message:
+${userMessage.trim()}`;
+
+    const result = await this.withRetry(() => this.model.generateContent(prompt));
+    const response = result.response.text();
+    let cleaned = response.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+    }
+    try {
+      const raw = JSON.parse(cleaned) as Record<string, unknown>;
+      return this.normalizeFinanceChatParse(raw);
+    } catch (err) {
+      this.logger.error(`Failed to parse finance chat JSON: ${err}`);
+      return {
+        intent: 'unknown',
+        filters: this.emptyFilters(),
+        clarifyMessage: null,
+      };
+    }
+  }
+
+  private emptyFilters(): FinanceChatFilters {
+    return {
+      from: null,
+      to: null,
+      relative: null,
+      accountId: null,
+      bankName: null,
+      category: null,
+      amount: null,
+      compareOp: null,
+    };
+  }
+
+  private normalizeFinanceChatParse(raw: Record<string, unknown>): FinanceChatParseResult {
+    const intents: FinanceChatIntent[] = [
+      'sum_debits',
+      'sum_credits',
+      'net_flow',
+      'top_category',
+      'compare_amount',
+      'investment_estimate',
+      'clarify',
+      'unknown',
+    ];
+    const relatives: FinanceChatRelative[] = [
+      'this_month',
+      'last_month',
+      'last_7_days',
+      'last_30_days',
+      'this_year',
+      'all',
+    ];
+    const ops = ['gte', 'lte', 'eq'] as const;
+
+    const intentRaw = raw.intent;
+    const intent =
+      typeof intentRaw === 'string' && intents.includes(intentRaw as FinanceChatIntent)
+        ? (intentRaw as FinanceChatIntent)
+        : 'unknown';
+
+    const f = raw.filters;
+    const filtersObj = f && typeof f === 'object' && !Array.isArray(f) ? (f as Record<string, unknown>) : {};
+
+    let relative: FinanceChatRelative | null = null;
+    const rel = filtersObj.relative;
+    if (typeof rel === 'string' && relatives.includes(rel as FinanceChatRelative)) {
+      relative = rel as FinanceChatRelative;
+    }
+
+    let compareOp: 'gte' | 'lte' | 'eq' | null = null;
+    const co = filtersObj.compareOp;
+    if (typeof co === 'string' && ops.includes(co as 'gte' | 'lte' | 'eq')) {
+      compareOp = co as 'gte' | 'lte' | 'eq';
+    }
+
+    let accountId: number | null = null;
+    if (typeof filtersObj.accountId === 'number' && Number.isFinite(filtersObj.accountId)) {
+      accountId = Math.floor(filtersObj.accountId);
+    } else if (typeof filtersObj.accountId === 'string' && /^\d+$/.test(filtersObj.accountId)) {
+      accountId = parseInt(filtersObj.accountId, 10);
+    }
+
+    let amount: number | null = null;
+    if (typeof filtersObj.amount === 'number' && Number.isFinite(filtersObj.amount)) {
+      amount = filtersObj.amount;
+    } else if (typeof filtersObj.amount === 'string' && filtersObj.amount.trim()) {
+      const n = parseFloat(filtersObj.amount.replace(/,/g, ''));
+      if (!Number.isNaN(n)) amount = n;
+    }
+
+    const filters: FinanceChatFilters = {
+      from: typeof filtersObj.from === 'string' ? filtersObj.from : null,
+      to: typeof filtersObj.to === 'string' ? filtersObj.to : null,
+      relative,
+      accountId,
+      bankName: typeof filtersObj.bankName === 'string' ? filtersObj.bankName : null,
+      category: typeof filtersObj.category === 'string' ? filtersObj.category : null,
+      amount,
+      compareOp,
+    };
+
+    const clarifyMessage =
+      typeof raw.clarifyMessage === 'string' && raw.clarifyMessage.trim()
+        ? raw.clarifyMessage.trim()
+        : null;
+
+    return { intent, filters, clarifyMessage };
   }
 }
