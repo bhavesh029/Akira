@@ -23,11 +23,16 @@ run it any time with:
 cd backend && npm test
 ```
 
-As of the `fix/critical-bugs-batch-1` branch: **220 tests passing across 13 suites**.
+As of the `fix/critical-bugs-batch-1` branch: **258 tests passing across 17 suites**.
 Beyond Phase 0's original coverage (timezone-safe date math, decimal transformer,
 extraction fallback fix), the financial-critical surface now has enforced coverage
 thresholds — run `npm run test:cov` to see the report and confirm nothing regresses
-below the thresholds in `backend/package.json`'s `jest.coverageThreshold`:
+below the thresholds in `backend/package.json`'s `jest.coverageThreshold`. It also
+now includes real end-to-end proofs (via `supertest`, real HTTP requests, not mocked
+behavior) for all four fixed High-severity bugs (`docs/BUGS.md` #4/#5/#6/#8):
+rate limiting on `/auth/login` and `/auth/register`, AI-insights figures verified
+against real transactions before reaching the user, the `RolesGuard`/`@Roles()`
+mechanism, and query-param validation on `GET /transactions`.
 
 | Area | Statements | Notes |
 |---|---|---|

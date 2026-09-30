@@ -23,12 +23,12 @@ deletion — see `docs/phases/phase-0-foundation.md`.
 
 | # | Bug | Effort | Status |
 |---|---|---|---|
-| 4 | No rate limiting on `/auth/login` or `/auth/register` | Low | ⬜ |
-| 5 | `getAiInsights()` lets Gemini state subscription amounts and anomaly figures directly, never cross-checked against real transaction data | Medium (tracked as Phase 5) | ⬜ |
-| 6 | `UserRole` (ADMIN/USER) is stored and put in the JWT but never checked anywhere — no `RolesGuard`, no admin-only route | Low to remove, Medium to implement | ⬜ |
-| 7 | No password-reset flow at all | Medium | ⬜ |
-| 8 | `transactions.controller.ts`'s `type` query param is passed straight to a Postgres enum column with no validation — an invalid value raises an unhandled 500 instead of a 400 | Low | ⬜ |
-| 9 | No JWT revocation/refresh mechanism | Medium | ⬜ |
+| 4 | No rate limiting on `/auth/login` or `/auth/register` | Low | ✅ Fixed — `@nestjs/throttler`, global 60/min default + a stricter 5/min override on both auth endpoints. Verified via real HTTP requests in `auth.throttling.spec.ts` (not a mock of the throttling behavior). |
+| 5 | `getAiInsights()` lets Gemini state subscription amounts and anomaly figures directly, never cross-checked against real transaction data | Medium (tracked as Phase 5) | ✅ Interim fix — every subscription/anomaly Gemini returns is now cross-checked against the real transactions sent to it: subscription amounts are replaced with the real (most recent) matching transaction's amount, or dropped if no transaction matches; anomaly sentences are dropped unless a mentioned figure matches a real transaction amount. The full persisted Recurring Bills feature (Phase 5) is still a separate, larger effort. |
+| 6 | `UserRole` (ADMIN/USER) is stored and put in the JWT but never checked anywhere — no `RolesGuard`, no admin-only route | Low to remove, Medium to implement | ✅ Fixed — real `RolesGuard` + `@Roles()` decorator added (`backend/src/auth/roles.guard.ts`/`roles.decorator.ts`), tested both as a unit (every branch) and end-to-end via real HTTP requests against a test controller. Not yet applied to any route, since no admin-only feature exists in this app today — ready to drop onto one with `@UseGuards(AuthGuard('jwt'), RolesGuard) @Roles(UserRole.ADMIN)` whenever that's needed. |
+| 7 | No password-reset flow at all | Medium | ⬜ **Deferred** — this repo has no email-sending provider integrated at all (no SendGrid/SES/Resend/SMTP config anywhere); revisit once one is chosen. |
+| 8 | `transactions.controller.ts`'s `type` query param is passed straight to a Postgres enum column with no validation — an invalid value raises an unhandled 500 instead of a 400 | Low | ✅ Fixed — replaced the individual untyped `@Query('x')` params with a validated `FindTransactionsQueryDto` (`@IsEnum`, `@IsInt`, `@IsDateString`, etc.), which the existing global `ValidationPipe` now enforces automatically. Verified via real HTTP requests in `transactions.controller.spec.ts`, including that an unrecognized query param is now also rejected (`forbidNonWhitelisted`). |
+| 9 | No JWT revocation/refresh mechanism | Medium | ⬜ **Deferred** — a full refresh-token system is a real auth-architecture change, not a quick fix; short-lived `JWT_EXPIRATION` (already configurable) is the accepted interim mitigation for the MVP. |
 
 ## Medium
 
