@@ -9,72 +9,8 @@ import { AccountsService } from '../accounts/accounts.service';
 import type {
   FinanceChatFilters,
   FinanceChatIntent,
-  FinanceChatRelative,
 } from './finance-chat.types';
-
-/** Returns start date for date range without mutating the original date. */
-function getStartDateForRange(dateRange: string): Date | undefined {
-  const now = new Date();
-  const startDate = new Date(now);
-  switch (dateRange) {
-    case '1m':
-      startDate.setMonth(startDate.getMonth() - 1);
-      return startDate;
-    case '3m':
-      startDate.setMonth(startDate.getMonth() - 3);
-      return startDate;
-    case '6m':
-      startDate.setMonth(startDate.getMonth() - 6);
-      return startDate;
-    case '1y':
-      startDate.setFullYear(startDate.getFullYear() - 1);
-      return startDate;
-    default:
-      return undefined;
-  }
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-function formatDateIso(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function dateRangeFromRelative(
-  relative: FinanceChatRelative,
-  today: Date,
-): { from: string; to: string } {
-  const y = today.getFullYear();
-  const m = today.getMonth();
-  const toStr = formatDateIso(today);
-
-  switch (relative) {
-    case 'this_month':
-      return { from: `${y}-${pad2(m + 1)}-01`, to: toStr };
-    case 'last_month': {
-      const first = new Date(y, m - 1, 1);
-      const last = new Date(y, m, 0);
-      return { from: formatDateIso(first), to: formatDateIso(last) };
-    }
-    case 'last_7_days': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 6);
-      return { from: formatDateIso(start), to: toStr };
-    }
-    case 'last_30_days': {
-      const start = new Date(today);
-      start.setDate(start.getDate() - 29);
-      return { from: formatDateIso(start), to: toStr };
-    }
-    case 'this_year':
-      return { from: `${y}-01-01`, to: toStr };
-    case 'all':
-    default:
-      return { from: '1970-01-01', to: toStr };
-  }
-}
+import { todayIso, getStartDateForRange, dateRangeFromRelative } from './date-range.util';
 
 function formatInr(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -109,7 +45,13 @@ export class AnalyticsService {
     private readonly accountsService: AccountsService,
   ) {}
 
-  async getSummary(userId: number, accountId?: number, dateRange?: string) {
+  /**
+   * Base query every analytics aggregation starts from: scopes to the user,
+   * optionally an account, and optionally a dateRange keyword — the single
+   * place those filters are applied so every query stays consistent (and,
+   * from Phase 1 onward, the single place a `reviewed = true` gate is added).
+   */
+  private baseFilteredQuery(userId: number, accountId?: number, dateRange?: string) {
     const query = this.transactionsRepository
       .createQueryBuilder('tx')
       .where('tx.userId = :userId', { userId });
@@ -124,6 +66,12 @@ export class AnalyticsService {
         query.andWhere('tx.transaction_date >= :startDate', { startDate });
       }
     }
+
+    return query;
+  }
+
+  async getSummary(userId: number, accountId?: number, dateRange?: string) {
+    const query = this.baseFilteredQuery(userId, accountId, dateRange);
 
     // 1. Get totals
     const totals = await query
@@ -161,9 +109,8 @@ export class AnalyticsService {
       value: Number(c.value),
     }));
 
-    // 4. Cashflow over the last 6 months (group by YYYY-MM)
-    const cashflowQuery = this.transactionsRepository
-      .createQueryBuilder('tx')
+    // 4. Cashflow over the last 12 months (group by YYYY-MM), built on the same base filters
+    const cashflowQuery = this.baseFilteredQuery(userId, accountId, dateRange)
       .select(`TO_CHAR(tx.transaction_date, 'YYYY-MM')`, 'month')
       .addSelect(
         `SUM(CASE WHEN tx.type = 'CREDIT' THEN tx.amount ELSE 0 END)`,
@@ -173,24 +120,9 @@ export class AnalyticsService {
         `SUM(CASE WHEN tx.type = 'DEBIT' THEN tx.amount ELSE 0 END)`,
         'expenses',
       )
-      .where('tx.userId = :userId', { userId })
       .groupBy(`TO_CHAR(tx.transaction_date, 'YYYY-MM')`)
       .orderBy('month', 'DESC')
       .limit(12);
-
-    if (accountId) {
-      cashflowQuery.andWhere('tx.accountId = :accountId', { accountId });
-    }
-
-    // Always constrain cashflow trend back to our selected date constraints if they exist
-    if (dateRange && dateRange !== 'all') {
-      const startDate = getStartDateForRange(dateRange);
-      if (startDate) {
-        cashflowQuery.andWhere('tx.transaction_date >= :startDate', {
-          startDate,
-        });
-      }
-    }
 
     const cashflow = await cashflowQuery.getRawMany<{
       month: string;
@@ -235,22 +167,9 @@ export class AnalyticsService {
       return cached;
     }
 
-    const query = this.transactionsRepository
-      .createQueryBuilder('tx')
-      .where('tx.userId = :userId', { userId })
+    const query = this.baseFilteredQuery(userId, accountId, dateRange)
       .orderBy('tx.transaction_date', 'DESC')
       .limit(100); // Send up to 100 recent transactions to AI
-
-    if (accountId) {
-      query.andWhere('tx.accountId = :accountId', { accountId });
-    }
-
-    if (dateRange && dateRange !== 'all') {
-      const startDate = getStartDateForRange(dateRange);
-      if (startDate) {
-        query.andWhere('tx.transaction_date >= :startDate', { startDate });
-      }
-    }
 
     const recentTx = await query.getMany();
 
@@ -304,14 +223,13 @@ ${txString}`;
     message: string,
   ): Promise<{ answer: string }> {
     const accounts = await this.accountsService.findAllByUser(userId);
-    const today = new Date();
-    const todayIso = formatDateIso(today);
+    const todayIsoStr = todayIso();
     const accCtx = accounts.map((a) => ({ id: a.id, bank_name: a.bank_name }));
 
     const parsed = await this.geminiService.parseFinanceChatIntent(
       message,
       accCtx,
-      todayIso,
+      todayIsoStr,
     );
 
     if (parsed.intent === 'clarify') {
@@ -328,7 +246,7 @@ ${txString}`;
       };
     }
 
-    const { from, to } = this.resolveChatDateRange(parsed.filters, today);
+    const { from, to } = this.resolveChatDateRange(parsed.filters, todayIsoStr);
     const accountIds = this.resolveAccountIds(accounts, parsed.filters);
 
     if (accountIds !== undefined && accountIds.length === 0) {
@@ -358,19 +276,19 @@ ${txString}`;
 
   private resolveChatDateRange(
     filters: FinanceChatFilters,
-    today: Date,
+    todayIsoStr: string,
   ): { from: string; to: string } {
     if (filters.from && filters.to) {
       return { from: filters.from, to: filters.to };
     }
     if (filters.from && !filters.to) {
-      return { from: filters.from, to: formatDateIso(today) };
+      return { from: filters.from, to: todayIsoStr };
     }
     if (!filters.from && filters.to) {
       return { from: '1970-01-01', to: filters.to };
     }
     const rel = filters.relative ?? 'last_30_days';
-    return dateRangeFromRelative(rel, today);
+    return dateRangeFromRelative(rel, todayIsoStr);
   }
 
   private resolveAccountIds(
