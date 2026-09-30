@@ -23,12 +23,24 @@ run it any time with:
 cd backend && npm test
 ```
 
-As of Phase 0: 57 tests passing across 9 suites, including dedicated coverage for
-the timezone-safe date math (`date-range.util.spec.ts`), the decimal transformer
-(`decimal.transformer.spec.ts`), and the extraction fallback fix
-(`extraction.service.spec.ts`). Manual testing below is still worthwhile since it
-exercises the real HTTP/DB/Gemini path end-to-end, which the unit tests
-intentionally mock out.
+As of the `fix/critical-bugs-batch-1` branch: **220 tests passing across 13 suites**.
+Beyond Phase 0's original coverage (timezone-safe date math, decimal transformer,
+extraction fallback fix), the financial-critical surface now has enforced coverage
+thresholds — run `npm run test:cov` to see the report and confirm nothing regresses
+below the thresholds in `backend/package.json`'s `jest.coverageThreshold`:
+
+| Area | Statements | Notes |
+|---|---|---|
+| All 6 bank parsers + factory | 100% | Includes the empirically-verified HDFC regex behavior (a double space before the amount is what triggers the CREDIT/deposit branch — worth knowing if you're editing that regex). |
+| `gemini.service.ts` | 98.6% | Full mock of the `@google/generative-ai` SDK — covers retry/backoff, the 429 and "limit: 0" special cases, and every validation branch in response parsing. |
+| `extraction.service.ts` | 92.5% | Includes the Bug #2 (atomicity) and Bug #3 (CSV routing) regression tests. |
+| `analytics.service.ts` | 100% | Every `financeChat` intent branch, `getSummary`, `getAiInsights` (cache hit/miss/empty), and all private helpers tested directly. |
+| `transactions.service.ts` | 100% | Full CRUD, pagination clamping, and every filter branch — including the documented (not yet fixed) single-sided `from`/`to` date-filter gap, bug #16. |
+
+Manual testing below is still worthwhile since it exercises the real HTTP/DB/Gemini
+path end-to-end, which the unit tests intentionally mock out. Not yet covered:
+`documents.service.ts`/`.controller.ts`, `accounts.service.ts`/`.controller.ts`,
+`transactions.controller.ts` — see `docs/BUGS.md` #20.
 
 ---
 

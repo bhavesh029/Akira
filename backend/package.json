@@ -89,8 +89,41 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "**/*.(t|j)s",
+      "!**/*.module.ts",
+      "!**/*.dto.ts",
+      "!entities/**",
+      "!main.ts",
+      "!data-source.ts",
+      "!migrations/**"
     ],
+    "coverageThreshold": {
+      "src/documents/parsers/**/*.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "src/documents/gemini.service.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "src/documents/extraction.service.ts": {
+        "statements": 90,
+        "functions": 80,
+        "lines": 90
+      },
+      "src/analytics/analytics.service.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "src/transactions/transactions.service.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      }
+    },
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }

@@ -16,6 +16,10 @@ backend/dist/
 frontend/.next/
 frontend/out/
 
+# Test coverage reports
+coverage/
+backend/coverage/
+
 # IDE and Editor folders
 .idea/
 .vscode/

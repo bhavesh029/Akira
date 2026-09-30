@@ -44,7 +44,7 @@ deletion — see `docs/phases/phase-0-foundation.md`.
 | 17 | No `documentId` filter on the transactions API despite the field existing on the entity | Low | ⬜ |
 | 18 | Deleting a `Document` mid-extraction can race with the fire-and-forget background job updating a row that no longer exists | Low | ⬜ |
 | 19 | No CI pipeline | Low–Medium | ⬜ |
-| 20 | Zero test coverage on `documents.service.ts`, `documents.controller.ts`, `transactions.service.ts`, `accounts.service.ts`, `gemini.service.ts` | Medium | ⬜ |
+| 20 | Zero test coverage on `documents.service.ts`, `documents.controller.ts`, `transactions.service.ts`, `accounts.service.ts`, `gemini.service.ts` | Medium | 🚧 Partially fixed — `gemini.service.ts` (98.6%), `extraction.service.ts` (92.5%), `analytics.service.ts` (100%), `transactions.service.ts` (100%), and all 6 bank parsers (100%) now have full suites with enforced coverage thresholds (see `backend/package.json`'s `jest.coverageThreshold`). `documents.service.ts`, `documents.controller.ts`, `accounts.service.ts`/`.controller.ts`, and `transactions.controller.ts` remain at 0%. |
 | 21 | Two unrelated concepts are both called "anomalies" (`getSummary`'s deterministic top-5-debits vs. `getAiInsights`'s LLM-narrated sentences) | Low | ⬜ |
 | 22 | `.claude/hooks/check-lint-scope.sh` false-positives on prose containing the phrases it's meant to block (hit twice writing commit/PR messages) | Low | ⬜ |
 
