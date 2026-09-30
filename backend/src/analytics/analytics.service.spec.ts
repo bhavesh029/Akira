@@ -203,19 +203,180 @@ describe('AnalyticsService', () => {
       expect(geminiService.generateInsights).not.toHaveBeenCalled();
     });
 
-    it('sends recent transactions to Gemini and caches + returns its response verbatim', async () => {
+    it('sends recent transactions to Gemini and returns the (verified) summary', async () => {
       aiInsightsCache.get.mockReturnValue(undefined);
       fakeQb.getMany.mockResolvedValue([
         { transaction_date: '2026-03-01', amount: 500, type: 'DEBIT', category: 'Food', description: 'Cafe' },
       ]);
-      const geminiResult = { summary: 'You spend a lot on food', subscriptions: [], anomalies: [] };
-      geminiService.generateInsights.mockResolvedValue(geminiResult);
+      geminiService.generateInsights.mockResolvedValue({
+        summary: 'You spend a lot on food',
+        subscriptions: [],
+        anomalies: [],
+      });
 
       const result = await service.getAiInsights(1, 5, '3m');
 
       expect(geminiService.generateInsights).toHaveBeenCalledWith(expect.stringContaining('Cafe'));
-      expect(aiInsightsCache.set).toHaveBeenCalledWith('cache-key', geminiResult);
-      expect(result).toBe(geminiResult);
+      expect(result.summary).toBe('You spend a lot on food');
+      expect(aiInsightsCache.set).toHaveBeenCalledWith('cache-key', result);
+    });
+
+    it('falls back to an empty summary string if Gemini returns a non-string summary', async () => {
+      aiInsightsCache.get.mockReturnValue(undefined);
+      fakeQb.getMany.mockResolvedValue([
+        { transaction_date: '2026-03-01', amount: 500, type: 'DEBIT', category: 'Food', description: 'Cafe' },
+      ]);
+      geminiService.generateInsights.mockResolvedValue({ summary: null, subscriptions: [], anomalies: [] });
+
+      const result = await service.getAiInsights(1, undefined, 'all');
+      expect(result.summary).toBe('');
+    });
+
+    describe('[Bug #5 fix] verifying subscriptions against real transactions', () => {
+      const netflixTx = {
+        transaction_date: '2026-03-10',
+        amount: 649,
+        type: 'DEBIT',
+        category: 'Entertainment',
+        description: 'NETFLIX.COM',
+      };
+
+      it('replaces an LLM-stated amount with the real amount from the matching transaction', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([netflixTx]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          // Gemini misreads/hallucinates 199 — the real charge was 649.
+          subscriptions: [{ name: 'Netflix', amount: 199, frequency: 'Monthly' }],
+          anomalies: [],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.subscriptions).toEqual([{ name: 'Netflix', amount: 649, frequency: 'Monthly' }]);
+      });
+
+      it('drops a subscription that matches no real transaction (hallucinated vendor)', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([netflixTx]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [{ name: 'Disney+', amount: 299, frequency: 'Monthly' }],
+          anomalies: [],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.subscriptions).toEqual([]);
+      });
+
+      it('uses the most recent matching transaction when there are several', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([
+          { ...netflixTx, transaction_date: '2026-01-10', amount: 599 },
+          { ...netflixTx, transaction_date: '2026-03-10', amount: 649 },
+          { ...netflixTx, transaction_date: '2026-02-10', amount: 599 },
+        ]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [{ name: 'Netflix', amount: 1, frequency: 'Monthly' }],
+          anomalies: [],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.subscriptions[0].amount).toBe(649);
+      });
+
+      it('ignores CREDIT transactions when matching a subscription vendor', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([{ ...netflixTx, type: 'CREDIT' }]); // a refund, not a charge
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [{ name: 'Netflix', amount: 649, frequency: 'Monthly' }],
+          anomalies: [],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.subscriptions).toEqual([]);
+      });
+
+      it('gracefully returns [] when subscriptions is missing or malformed', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([netflixTx]);
+        geminiService.generateInsights.mockResolvedValue({ summary: 'ok', anomalies: [] }); // no subscriptions key
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.subscriptions).toEqual([]);
+      });
+
+      it('skips a malformed subscription entry (missing name) without crashing', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([netflixTx]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [{ amount: 649, frequency: 'Monthly' }, 'not even an object'],
+          anomalies: [],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.subscriptions).toEqual([]);
+      });
+    });
+
+    describe('[Bug #5 fix] verifying anomalies against real transactions', () => {
+      const bigTx = {
+        transaction_date: '2026-03-05',
+        amount: 50000,
+        type: 'DEBIT',
+        category: 'Shopping',
+        description: 'Apple Store',
+      };
+
+      it('keeps an anomaly sentence whose figure matches a real transaction amount', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([bigTx]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [],
+          anomalies: ['Detected a large unusual payment of ₹50,000 for Apple Store.'],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.anomalies).toEqual(['Detected a large unusual payment of ₹50,000 for Apple Store.']);
+      });
+
+      it('drops an anomaly sentence whose figure matches no real transaction', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([bigTx]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [],
+          anomalies: ['Detected a suspicious payment of ₹99,999 to an unknown merchant.'],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.anomalies).toEqual([]);
+      });
+
+      it('gracefully returns [] when anomalies is missing or malformed', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([bigTx]);
+        geminiService.generateInsights.mockResolvedValue({ summary: 'ok', subscriptions: [] }); // no anomalies key
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.anomalies).toEqual([]);
+      });
+
+      it('ignores a non-string entry in the anomalies array', async () => {
+        aiInsightsCache.get.mockReturnValue(undefined);
+        fakeQb.getMany.mockResolvedValue([bigTx]);
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [],
+          anomalies: [12345],
+        });
+
+        const result = await service.getAiInsights(1, undefined, 'all');
+        expect(result.anomalies).toEqual([]);
+      });
     });
   });
 
