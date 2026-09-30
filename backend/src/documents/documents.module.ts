@@ -9,6 +9,7 @@ import { GeminiService } from './gemini.service';
 import { ExtractionService } from './extraction.service';
 import { AccountsModule } from '../accounts/accounts.module';
 import { AiInsightsCacheModule } from '../analytics/ai-insights-cache.module';
+import { ParserFactory } from './parsers/parser.factory';
 
 @Module({
   imports: [
@@ -16,7 +17,13 @@ import { AiInsightsCacheModule } from '../analytics/ai-insights-cache.module';
     AccountsModule,
     AiInsightsCacheModule,
   ],
-  providers: [DocumentsService, SupabaseStorageService, GeminiService, ExtractionService],
+  providers: [
+    DocumentsService,
+    SupabaseStorageService,
+    GeminiService,
+    ExtractionService,
+    ParserFactory,
+  ],
   controllers: [DocumentsController],
   exports: [DocumentsService, SupabaseStorageService, GeminiService],
 })
