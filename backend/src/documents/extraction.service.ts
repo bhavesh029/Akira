@@ -93,6 +93,12 @@ export class ExtractionService {
           this.logger.log('PDF has little/no text, using multimodal vision extraction');
           extracted = await this.geminiService.extractTransactionsFromFile(fileBuffer, mimeType);
         }
+      } else if (mimeType === 'text/csv') {
+        // CSV is plain text, not an image — must go through text extraction,
+        // never the vision/inlineData path (which expects an actual image).
+        const csvText = fileBuffer.toString('utf-8').trim();
+        this.logger.log(`CSV file with ${csvText.length} chars, using text extraction`);
+        extracted = await this.geminiService.extractTransactionsFromText(csvText);
       } else {
         // Images (PNG, JPG) — always use vision
         extracted = await this.geminiService.extractTransactionsFromFile(fileBuffer, mimeType);
@@ -164,15 +170,26 @@ export class ExtractionService {
           }),
         );
 
-        await this.transactionsRepository.save(transactions);
+        // Save the new transactions and mark the document COMPLETED atomically
+        // — these must not be two independently-failable writes. Without this,
+        // a crash/error between them could leave transactions saved against a
+        // document stuck on PROCESSING, or (if the status update itself fails)
+        // a document marked FAILED whose transactions were already persisted.
+        await this.transactionsRepository.manager.transaction(async (manager) => {
+          await manager.save(transactions);
+          await manager.update(Document, document.id, {
+            status: DocumentStatus.COMPLETED,
+          });
+        });
+
         this.aiInsightsCache.invalidateForUser(document.userId);
         this.logger.log(`Saved ${transactions.length} transactions for document ${document.id}`);
+      } else {
+        // Nothing to save — a single write, no atomicity concern.
+        await this.documentsRepository.update(document.id, {
+          status: DocumentStatus.COMPLETED,
+        });
       }
-
-      // 6. Mark as COMPLETED
-      await this.documentsRepository.update(document.id, {
-        status: DocumentStatus.COMPLETED,
-      });
 
       this.logger.log(`Document ${document.id} extraction completed successfully`);
     } catch (err) {

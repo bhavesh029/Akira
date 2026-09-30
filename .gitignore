@@ -37,3 +37,8 @@ yarn-debug.log*
 yarn-error.log*
 logs
 *.log
+
+# Local-only bank statement samples for bank-parser development (never commit
+# real/redacted financial documents) — see backend/test-fixtures/statements/README.md
+backend/test-fixtures/statements/*
+!backend/test-fixtures/statements/README.md
