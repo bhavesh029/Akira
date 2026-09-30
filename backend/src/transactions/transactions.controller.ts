@@ -15,7 +15,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
-import { TransactionType } from '../entities/transaction.entity';
+import { FindTransactionsQueryDto } from './dto/find-transactions-query.dto';
 
 @Controller('transactions')
 @UseGuards(AuthGuard('jwt'))
@@ -28,29 +28,10 @@ export class TransactionsController {
   }
 
   @Get()
-  findAll(
-    @Req() req: any,
-    @Query('accountId') accountId?: string,
-    @Query('type') type?: TransactionType,
-    @Query('category') category?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
-    const pageNum = page ? parseInt(page, 10) : undefined;
-    const limitNum = limit ? parseInt(limit, 10) : undefined;
+  findAll(@Req() req: any, @Query() query: FindTransactionsQueryDto) {
     return this.transactionsService.findAllByUser(req.user.id, {
-      accountId: accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
-      type,
-      category,
-      from,
-      to,
-      search: search?.trim() || undefined,
-      page: pageNum != null && !isNaN(pageNum) ? pageNum : undefined,
-      limit: limitNum != null && !isNaN(limitNum) ? limitNum : undefined,
+      ...query,
+      search: query.search?.trim() || undefined,
     });
   }
 
