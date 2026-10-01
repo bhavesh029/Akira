@@ -10,7 +10,11 @@ import type {
   FinanceChatFilters,
   FinanceChatIntent,
 } from './finance-chat.types';
-import { todayIso, getStartDateForRange, dateRangeFromRelative } from './date-range.util';
+import {
+  todayIso,
+  getStartDateForRange,
+  dateRangeFromRelative,
+} from './date-range.util';
 
 function formatInr(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -51,7 +55,11 @@ export class AnalyticsService {
    * place those filters are applied so every query stays consistent (and,
    * from Phase 1 onward, the single place a `reviewed = true` gate is added).
    */
-  private baseFilteredQuery(userId: number, accountId?: number, dateRange?: string) {
+  private baseFilteredQuery(
+    userId: number,
+    accountId?: number,
+    dateRange?: string,
+  ) {
     const query = this.transactionsRepository
       .createQueryBuilder('tx')
       .where('tx.userId = :userId', { userId });
@@ -244,27 +252,36 @@ ${txString}`;
     if (!Array.isArray(subscriptions)) return [];
 
     const debits = transactions.filter((t) => t.type === TransactionType.DEBIT);
-    const verified: Array<{ name: string; amount: number; frequency: string }> = [];
+    const verified: Array<{ name: string; amount: number; frequency: string }> =
+      [];
 
     for (const sub of subscriptions) {
       if (!sub || typeof sub !== 'object') continue;
       const raw = sub as Record<string, unknown>;
       const name = typeof raw.name === 'string' ? raw.name.trim() : '';
-      const frequency = typeof raw.frequency === 'string' ? raw.frequency : 'Unknown';
+      const frequency =
+        typeof raw.frequency === 'string' ? raw.frequency : 'Unknown';
       if (!name) continue;
 
       const nameLower = name.toLowerCase();
       const matches = debits.filter((t) => {
         const desc = (t.description ?? '').trim().toLowerCase();
-        return desc.length > 0 && (desc.includes(nameLower) || nameLower.includes(desc));
+        return (
+          desc.length > 0 &&
+          (desc.includes(nameLower) || nameLower.includes(desc))
+        );
       });
 
       if (matches.length === 0) {
-        this.logger.warn(`Dropping AI-detected subscription "${name}" — no matching transaction found`);
+        this.logger.warn(
+          `Dropping AI-detected subscription "${name}" — no matching transaction found`,
+        );
         continue;
       }
 
-      const mostRecent = matches.reduce((a, b) => (a.transaction_date > b.transaction_date ? a : b));
+      const mostRecent = matches.reduce((a, b) =>
+        a.transaction_date > b.transaction_date ? a : b,
+      );
       verified.push({ name, amount: mostRecent.amount, frequency });
     }
 
@@ -277,7 +294,10 @@ ${txString}`;
    * sentence matches a real transaction amount; otherwise the figure (and
    * therefore the whole claim) can't be trusted, so drop it.
    */
-  private verifyAnomalies(anomalies: unknown, transactions: Transaction[]): string[] {
+  private verifyAnomalies(
+    anomalies: unknown,
+    transactions: Transaction[],
+  ): string[] {
     if (!Array.isArray(anomalies)) return [];
 
     const realAmounts = new Set(transactions.map((t) => Math.round(t.amount)));
@@ -286,12 +306,16 @@ ${txString}`;
     for (const item of anomalies) {
       if (typeof item !== 'string') continue;
       const numbers = item.match(/[\d,]+(?:\.\d+)?/g) ?? [];
-      const hasRealAmount = numbers.some((n) => realAmounts.has(Math.round(parseFloat(n.replace(/,/g, '')))));
+      const hasRealAmount = numbers.some((n) =>
+        realAmounts.has(Math.round(parseFloat(n.replace(/,/g, '')))),
+      );
 
       if (hasRealAmount) {
         verified.push(item);
       } else {
-        this.logger.warn(`Dropping AI-detected anomaly with no matching transaction amount: "${item}"`);
+        this.logger.warn(
+          `Dropping AI-detected anomaly with no matching transaction amount: "${item}"`,
+        );
       }
     }
 

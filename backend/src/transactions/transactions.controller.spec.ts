@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ExecutionContext, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  ExecutionContext,
+  ValidationPipe,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import request from 'supertest';
 import { TransactionsController } from './transactions.controller';
@@ -20,11 +24,21 @@ describe('TransactionsController query validation (Bug #8)', () => {
   let transactionsService: { findAllByUser: jest.Mock };
 
   beforeEach(async () => {
-    transactionsService = { findAllByUser: jest.fn().mockResolvedValue({ data: [], total: 0, page: 1, limit: 20, totalPages: 0 }) };
+    transactionsService = {
+      findAllByUser: jest.fn().mockResolvedValue({
+        data: [],
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0,
+      }),
+    };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [TransactionsController],
-      providers: [{ provide: TransactionsService, useValue: transactionsService }],
+      providers: [
+        { provide: TransactionsService, useValue: transactionsService },
+      ],
     })
       .overrideGuard(AuthGuard('jwt'))
       .useValue({
@@ -38,7 +52,13 @@ describe('TransactionsController query validation (Bug #8)', () => {
 
     app = moduleRef.createNestApplication();
     // Mirrors the exact global pipe configuration in src/main.ts.
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
     await app.init();
   });
 
@@ -49,28 +69,42 @@ describe('TransactionsController query validation (Bug #8)', () => {
   it('returns 200 with no query params at all', async () => {
     const res = await request(app.getHttpServer()).get('/transactions');
     expect(res.status).toBe(200);
-    expect(transactionsService.findAllByUser).toHaveBeenCalledWith(10, expect.any(Object));
+    expect(transactionsService.findAllByUser).toHaveBeenCalledWith(
+      10,
+      expect.any(Object),
+    );
   });
 
   it('accepts a valid "type" value and passes it through unchanged', async () => {
-    const res = await request(app.getHttpServer()).get('/transactions?type=DEBIT');
+    const res = await request(app.getHttpServer()).get(
+      '/transactions?type=DEBIT',
+    );
     expect(res.status).toBe(200);
-    expect(transactionsService.findAllByUser).toHaveBeenCalledWith(10, expect.objectContaining({ type: 'DEBIT' }));
+    expect(transactionsService.findAllByUser).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ type: 'DEBIT' }),
+    );
   });
 
   it('[Bug #8 fix] rejects an invalid "type" value with 400, not a 500', async () => {
-    const res = await request(app.getHttpServer()).get('/transactions?type=FOO');
+    const res = await request(app.getHttpServer()).get(
+      '/transactions?type=FOO',
+    );
     expect(res.status).toBe(400);
     expect(transactionsService.findAllByUser).not.toHaveBeenCalled();
   });
 
   it('[Bug #8 fix] rejects a lowercase "type" value (enum is case-sensitive) with 400', async () => {
-    const res = await request(app.getHttpServer()).get('/transactions?type=debit');
+    const res = await request(app.getHttpServer()).get(
+      '/transactions?type=debit',
+    );
     expect(res.status).toBe(400);
   });
 
   it('[Bug #8 fix] rejects a non-numeric "accountId" with 400', async () => {
-    const res = await request(app.getHttpServer()).get('/transactions?accountId=abc');
+    const res = await request(app.getHttpServer()).get(
+      '/transactions?accountId=abc',
+    );
     expect(res.status).toBe(400);
     expect(transactionsService.findAllByUser).not.toHaveBeenCalled();
   });
@@ -83,12 +117,16 @@ describe('TransactionsController query validation (Bug #8)', () => {
   });
 
   it('rejects a malformed "from" date with 400', async () => {
-    const res = await request(app.getHttpServer()).get('/transactions?from=not-a-date');
+    const res = await request(app.getHttpServer()).get(
+      '/transactions?from=not-a-date',
+    );
     expect(res.status).toBe(400);
   });
 
   it('rejects an unrecognized query parameter with 400 (forbidNonWhitelisted)', async () => {
-    const res = await request(app.getHttpServer()).get('/transactions?sortBy=amount');
+    const res = await request(app.getHttpServer()).get(
+      '/transactions?sortBy=amount',
+    );
     expect(res.status).toBe(400);
   });
 

@@ -13,16 +13,36 @@ import { BankParser } from './bank-parser.interface';
  * (so a future accidental change is caught), not "correct" parsing.
  */
 describe.each([
-  { Parser: ICICIParser, name: 'ICICI Bank', matches: ['icici bank statement'], nonMatches: ['hdfc bank'] },
-  { Parser: HSBCParser, name: 'HSBC Bank', matches: ['hsbc bank statement', 'plain hsbc mention'], nonMatches: ['icici bank'] },
-  { Parser: UCOParser, name: 'UCO Bank', matches: ['uco bank statement'], nonMatches: ['icici bank'] },
+  {
+    Parser: ICICIParser,
+    name: 'ICICI Bank',
+    matches: ['icici bank statement'],
+    nonMatches: ['hdfc bank'],
+  },
+  {
+    Parser: HSBCParser,
+    name: 'HSBC Bank',
+    matches: ['hsbc bank statement', 'plain hsbc mention'],
+    nonMatches: ['icici bank'],
+  },
+  {
+    Parser: UCOParser,
+    name: 'UCO Bank',
+    matches: ['uco bank statement'],
+    nonMatches: ['icici bank'],
+  },
   {
     Parser: PNBParser,
     name: 'Punjab National Bank (PNB)',
     matches: ['punjab national bank statement', 'pnb account summary'],
     nonMatches: ['icici bank'],
   },
-  { Parser: AxisParser, name: 'Axis Bank', matches: ['axis bank statement'], nonMatches: ['icici bank'] },
+  {
+    Parser: AxisParser,
+    name: 'Axis Bank',
+    matches: ['axis bank statement'],
+    nonMatches: ['icici bank'],
+  },
 ])('$Parser.name (stub parser)', ({ Parser, name, matches, nonMatches }) => {
   const parser: BankParser = new Parser();
 
@@ -40,7 +60,9 @@ describe.each([
   });
 
   it('parse() always returns an empty array (stub — not yet implemented)', () => {
-    expect(parser.parse('any statement text at all, even a real one')).toEqual([]);
+    expect(parser.parse('any statement text at all, even a real one')).toEqual(
+      [],
+    );
     expect(parser.parse('')).toEqual([]);
   });
 });
@@ -62,31 +84,51 @@ describe('HDFCParser', () => {
   });
 
   it('extracts a DEBIT transaction from a matching line (withdrawal column present)', () => {
-    const result = parser.parse('01/03/26 Amazon Purchase 1,500.00 0.00 25,000.00');
+    const result = parser.parse(
+      '01/03/26 Amazon Purchase 1,500.00 0.00 25,000.00',
+    );
     expect(result).toEqual([
-      { transaction_date: '2026-03-01', description: 'Amazon Purchase', amount: 1500, type: 'DEBIT', category: 'Other' },
+      {
+        transaction_date: '2026-03-01',
+        description: 'Amazon Purchase',
+        amount: 1500,
+        type: 'DEBIT',
+        category: 'Other',
+      },
     ]);
   });
 
   it('extracts a CREDIT transaction when the withdrawal column is absent (double space before the amount)', () => {
     const result = parser.parse('02/03/26 Salary Credit  50,000.00 75,000.00');
     expect(result).toEqual([
-      { transaction_date: '2026-03-02', description: 'Salary Credit', amount: 50000, type: 'CREDIT', category: 'Other' },
+      {
+        transaction_date: '2026-03-02',
+        description: 'Salary Credit',
+        amount: 50000,
+        type: 'CREDIT',
+        category: 'Other',
+      },
     ]);
   });
 
   it('formats a 4-digit year without prefixing "20"', () => {
-    const result = parser.parse('03/03/2026 ATM Withdrawal 500.00 0.00 9,500.00');
+    const result = parser.parse(
+      '03/03/2026 ATM Withdrawal 500.00 0.00 9,500.00',
+    );
     expect(result[0].transaction_date).toBe('2026-03-03');
   });
 
   it('strips comma thousands-separators from amounts', () => {
-    const result = parser.parse('01/03/26 Big Purchase 12,345.67 0.00 1,00,000.00');
+    const result = parser.parse(
+      '01/03/26 Big Purchase 12,345.67 0.00 1,00,000.00',
+    );
     expect(result[0].amount).toBe(12345.67);
   });
 
   it('ignores lines that do not match the expected column layout', () => {
-    const result = parser.parse('This is a header line\nAccount Number: 1234\nStatement Period: March 2026');
+    const result = parser.parse(
+      'This is a header line\nAccount Number: 1234\nStatement Period: March 2026',
+    );
     expect(result).toEqual([]);
   });
 

@@ -8,7 +8,15 @@ import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
 
 function createFakeQueryBuilder() {
   const qb: any = {};
-  ['leftJoinAndSelect', 'where', 'andWhere', 'orderBy', 'addOrderBy', 'skip', 'take'].forEach((m) => {
+  [
+    'leftJoinAndSelect',
+    'where',
+    'andWhere',
+    'orderBy',
+    'addOrderBy',
+    'skip',
+    'take',
+  ].forEach((m) => {
     qb[m] = jest.fn().mockReturnValue(qb);
   });
   qb.getManyAndCount = jest.fn().mockResolvedValue([[], 0]);
@@ -32,13 +40,18 @@ describe('TransactionsService', () => {
       remove: jest.fn().mockResolvedValue(undefined),
       count: jest.fn().mockResolvedValue(0),
     };
-    accountsService = { findOne: jest.fn().mockResolvedValue({ id: 1, userId: 10 }) };
+    accountsService = {
+      findOne: jest.fn().mockResolvedValue({ id: 1, userId: 10 }),
+    };
     aiInsightsCache = { invalidateForUser: jest.fn() };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TransactionsService,
-        { provide: getRepositoryToken(Transaction), useValue: transactionsRepository },
+        {
+          provide: getRepositoryToken(Transaction),
+          useValue: transactionsRepository,
+        },
         { provide: AccountsService, useValue: accountsService },
         { provide: AiInsightsCacheService, useValue: aiInsightsCache },
       ],
@@ -53,21 +66,39 @@ describe('TransactionsService', () => {
 
   describe('create', () => {
     it('validates account ownership, saves, and invalidates the cache', async () => {
-      const dto = { accountId: 1, amount: 500, type: TransactionType.DEBIT, transaction_date: '2026-03-01' } as any;
+      const dto = {
+        accountId: 1,
+        amount: 500,
+        type: TransactionType.DEBIT,
+        transaction_date: '2026-03-01',
+      } as any;
 
       const result = await service.create(10, dto);
 
       expect(accountsService.findOne).toHaveBeenCalledWith(1, 10);
-      expect(transactionsRepository.save).toHaveBeenCalledWith(expect.objectContaining({ ...dto, userId: 10 }));
+      expect(transactionsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ ...dto, userId: 10 }),
+      );
       expect(aiInsightsCache.invalidateForUser).toHaveBeenCalledWith(10);
-      expect(result).toEqual(expect.objectContaining({ amount: 500, userId: 10 }));
+      expect(result).toEqual(
+        expect.objectContaining({ amount: 500, userId: 10 }),
+      );
     });
 
     it('propagates the NotFoundException if the account does not belong to the user', async () => {
-      accountsService.findOne.mockRejectedValue(new NotFoundException('Account with ID "1" not found'));
-      const dto = { accountId: 1, amount: 500, type: TransactionType.DEBIT, transaction_date: '2026-03-01' } as any;
+      accountsService.findOne.mockRejectedValue(
+        new NotFoundException('Account with ID "1" not found'),
+      );
+      const dto = {
+        accountId: 1,
+        amount: 500,
+        type: TransactionType.DEBIT,
+        transaction_date: '2026-03-01',
+      } as any;
 
-      await expect(service.create(10, dto)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.create(10, dto)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
       expect(transactionsRepository.save).not.toHaveBeenCalled();
     });
   });
@@ -75,7 +106,9 @@ describe('TransactionsService', () => {
   describe('findAllByUser', () => {
     it('always scopes to the given userId', async () => {
       await service.findAllByUser(10);
-      expect(fakeQb.where).toHaveBeenCalledWith('tx.userId = :userId', { userId: 10 });
+      expect(fakeQb.where).toHaveBeenCalledWith('tx.userId = :userId', {
+        userId: 10,
+      });
     });
 
     it('defaults to page 1 and limit 20 when no filters are given', async () => {
@@ -114,7 +147,10 @@ describe('TransactionsService', () => {
 
     it('applies an accountId filter when provided', async () => {
       await service.findAllByUser(10, { accountId: 5 });
-      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.accountId = :accountId', { accountId: 5 });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith(
+        'tx.accountId = :accountId',
+        { accountId: 5 },
+      );
     });
 
     it('does not apply an accountId filter when absent', async () => {
@@ -127,20 +163,27 @@ describe('TransactionsService', () => {
 
     it('applies a type filter when provided', async () => {
       await service.findAllByUser(10, { type: TransactionType.CREDIT });
-      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.type = :type', { type: TransactionType.CREDIT });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.type = :type', {
+        type: TransactionType.CREDIT,
+      });
     });
 
     it('applies an exact category filter when provided', async () => {
       await service.findAllByUser(10, { category: 'Food' });
-      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.category = :category', { category: 'Food' });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.category = :category', {
+        category: 'Food',
+      });
     });
 
     it('applies a BETWEEN date filter only when both from and to are provided', async () => {
       await service.findAllByUser(10, { from: '2026-01-01', to: '2026-01-31' });
-      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.transaction_date BETWEEN :from AND :to', {
-        from: '2026-01-01',
-        to: '2026-01-31',
-      });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith(
+        'tx.transaction_date BETWEEN :from AND :to',
+        {
+          from: '2026-01-01',
+          to: '2026-01-31',
+        },
+      );
     });
 
     it('[documents current behavior] ignores the date filter entirely when only "from" is given', async () => {
@@ -177,7 +220,10 @@ describe('TransactionsService', () => {
 
     it('orders by transaction_date DESC then created_at DESC', async () => {
       await service.findAllByUser(10);
-      expect(fakeQb.orderBy).toHaveBeenCalledWith('tx.transaction_date', 'DESC');
+      expect(fakeQb.orderBy).toHaveBeenCalledWith(
+        'tx.transaction_date',
+        'DESC',
+      );
       expect(fakeQb.addOrderBy).toHaveBeenCalledWith('tx.created_at', 'DESC');
     });
 
@@ -209,24 +255,36 @@ describe('TransactionsService', () => {
 
     it('throws NotFoundException when not found', async () => {
       transactionsRepository.findOne.mockResolvedValue(null);
-      await expect(service.findOne(999, 10)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.findOne(999, 10)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 
   describe('update', () => {
     it('throws NotFoundException when the transaction does not exist', async () => {
       transactionsRepository.findOne.mockResolvedValue(null);
-      await expect(service.update(1, 10, {} as any)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.update(1, 10, {} as any)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
 
     it('validates the new account ownership when accountId is being changed', async () => {
-      transactionsRepository.findOne.mockResolvedValue({ id: 1, userId: 10, accountId: 1 });
+      transactionsRepository.findOne.mockResolvedValue({
+        id: 1,
+        userId: 10,
+        accountId: 1,
+      });
       await service.update(1, 10, { accountId: 2 } as any);
       expect(accountsService.findOne).toHaveBeenCalledWith(2, 10);
     });
 
     it('does not re-validate account ownership when accountId is not part of the update', async () => {
-      transactionsRepository.findOne.mockResolvedValue({ id: 1, userId: 10, accountId: 1 });
+      transactionsRepository.findOne.mockResolvedValue({
+        id: 1,
+        userId: 10,
+        accountId: 1,
+      });
       await service.update(1, 10, { category: 'Food' } as any);
       expect(accountsService.findOne).not.toHaveBeenCalled();
     });
@@ -248,7 +306,9 @@ describe('TransactionsService', () => {
   describe('remove', () => {
     it('throws NotFoundException when the transaction does not exist', async () => {
       transactionsRepository.findOne.mockResolvedValue(null);
-      await expect(service.remove(1, 10)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.remove(1, 10)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
       expect(transactionsRepository.remove).not.toHaveBeenCalled();
     });
 
@@ -267,7 +327,9 @@ describe('TransactionsService', () => {
     it('delegates to the repository count scoped to the user', async () => {
       transactionsRepository.count.mockResolvedValue(42);
       await expect(service.countByUser(10)).resolves.toBe(42);
-      expect(transactionsRepository.count).toHaveBeenCalledWith({ where: { userId: 10 } });
+      expect(transactionsRepository.count).toHaveBeenCalledWith({
+        where: { userId: 10 },
+      });
     });
   });
 });

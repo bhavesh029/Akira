@@ -26,7 +26,10 @@ import { Account } from '../entities/account.entity';
 import { GeminiService } from '../documents/gemini.service';
 import { AiInsightsCacheService } from './ai-insights-cache.service';
 import { AccountsService } from '../accounts/accounts.service';
-import type { FinanceChatFilters, FinanceChatParseResult } from './finance-chat.types';
+import type {
+  FinanceChatFilters,
+  FinanceChatParseResult,
+} from './finance-chat.types';
 
 /**
  * A minimal chainable fake for TypeORM's SelectQueryBuilder. Every chain
@@ -37,7 +40,16 @@ import type { FinanceChatFilters, FinanceChatParseResult } from './finance-chat.
  */
 function createFakeQueryBuilder() {
   const qb: any = {};
-  ['where', 'andWhere', 'select', 'addSelect', 'groupBy', 'orderBy', 'limit', 'clone'].forEach((m) => {
+  [
+    'where',
+    'andWhere',
+    'select',
+    'addSelect',
+    'groupBy',
+    'orderBy',
+    'limit',
+    'clone',
+  ].forEach((m) => {
     qb[m] = jest.fn().mockReturnValue(qb);
   });
   qb.getRawMany = jest.fn().mockResolvedValue([]);
@@ -47,7 +59,9 @@ function createFakeQueryBuilder() {
   return qb;
 }
 
-function emptyFilters(overrides: Partial<FinanceChatFilters> = {}): FinanceChatFilters {
+function emptyFilters(
+  overrides: Partial<FinanceChatFilters> = {},
+): FinanceChatFilters {
   return {
     from: null,
     to: null,
@@ -64,22 +78,37 @@ function emptyFilters(overrides: Partial<FinanceChatFilters> = {}): FinanceChatF
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
   let transactionsRepository: { createQueryBuilder: jest.Mock };
-  let geminiService: { generateInsights: jest.Mock; parseFinanceChatIntent: jest.Mock };
+  let geminiService: {
+    generateInsights: jest.Mock;
+    parseFinanceChatIntent: jest.Mock;
+  };
   let aiInsightsCache: { get: jest.Mock; set: jest.Mock; makeKey: jest.Mock };
   let accountsService: { findAllByUser: jest.Mock };
   let fakeQb: ReturnType<typeof createFakeQueryBuilder>;
 
   beforeEach(async () => {
     fakeQb = createFakeQueryBuilder();
-    transactionsRepository = { createQueryBuilder: jest.fn().mockReturnValue(fakeQb) };
-    geminiService = { generateInsights: jest.fn(), parseFinanceChatIntent: jest.fn() };
-    aiInsightsCache = { get: jest.fn(), set: jest.fn(), makeKey: jest.fn().mockReturnValue('cache-key') };
+    transactionsRepository = {
+      createQueryBuilder: jest.fn().mockReturnValue(fakeQb),
+    };
+    geminiService = {
+      generateInsights: jest.fn(),
+      parseFinanceChatIntent: jest.fn(),
+    };
+    aiInsightsCache = {
+      get: jest.fn(),
+      set: jest.fn(),
+      makeKey: jest.fn().mockReturnValue('cache-key'),
+    };
     accountsService = { findAllByUser: jest.fn().mockResolvedValue([]) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AnalyticsService,
-        { provide: getRepositoryToken(Transaction), useValue: transactionsRepository },
+        {
+          provide: getRepositoryToken(Transaction),
+          useValue: transactionsRepository,
+        },
         { provide: getRepositoryToken(Account), useValue: {} },
         { provide: GeminiService, useValue: geminiService },
         { provide: AiInsightsCacheService, useValue: aiInsightsCache },
@@ -123,12 +152,17 @@ describe('AnalyticsService', () => {
 
     it('scopes every query to the given userId', async () => {
       await service.getSummary(42, undefined, 'all');
-      expect(fakeQb.where).toHaveBeenCalledWith('tx.userId = :userId', { userId: 42 });
+      expect(fakeQb.where).toHaveBeenCalledWith('tx.userId = :userId', {
+        userId: 42,
+      });
     });
 
     it('applies an accountId filter when provided', async () => {
       await service.getSummary(1, 99, 'all');
-      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.accountId = :accountId', { accountId: 99 });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith(
+        'tx.accountId = :accountId',
+        { accountId: 99 },
+      );
     });
 
     it('applies a dateRange filter when provided (not "all")', async () => {
@@ -178,7 +212,11 @@ describe('AnalyticsService', () => {
   // ---------------------------------------------------------------------
   describe('getAiInsights', () => {
     it('returns the cached value without touching the database or Gemini when present', async () => {
-      const cached = { summary: 'cached summary', subscriptions: [], anomalies: [] };
+      const cached = {
+        summary: 'cached summary',
+        subscriptions: [],
+        anomalies: [],
+      };
       aiInsightsCache.get.mockReturnValue(cached);
 
       const result = await service.getAiInsights(1, undefined, 'all');
@@ -206,7 +244,13 @@ describe('AnalyticsService', () => {
     it('sends recent transactions to Gemini and returns the (verified) summary', async () => {
       aiInsightsCache.get.mockReturnValue(undefined);
       fakeQb.getMany.mockResolvedValue([
-        { transaction_date: '2026-03-01', amount: 500, type: 'DEBIT', category: 'Food', description: 'Cafe' },
+        {
+          transaction_date: '2026-03-01',
+          amount: 500,
+          type: 'DEBIT',
+          category: 'Food',
+          description: 'Cafe',
+        },
       ]);
       geminiService.generateInsights.mockResolvedValue({
         summary: 'You spend a lot on food',
@@ -216,7 +260,9 @@ describe('AnalyticsService', () => {
 
       const result = await service.getAiInsights(1, 5, '3m');
 
-      expect(geminiService.generateInsights).toHaveBeenCalledWith(expect.stringContaining('Cafe'));
+      expect(geminiService.generateInsights).toHaveBeenCalledWith(
+        expect.stringContaining('Cafe'),
+      );
       expect(result.summary).toBe('You spend a lot on food');
       expect(aiInsightsCache.set).toHaveBeenCalledWith('cache-key', result);
     });
@@ -224,9 +270,19 @@ describe('AnalyticsService', () => {
     it('falls back to an empty summary string if Gemini returns a non-string summary', async () => {
       aiInsightsCache.get.mockReturnValue(undefined);
       fakeQb.getMany.mockResolvedValue([
-        { transaction_date: '2026-03-01', amount: 500, type: 'DEBIT', category: 'Food', description: 'Cafe' },
+        {
+          transaction_date: '2026-03-01',
+          amount: 500,
+          type: 'DEBIT',
+          category: 'Food',
+          description: 'Cafe',
+        },
       ]);
-      geminiService.generateInsights.mockResolvedValue({ summary: null, subscriptions: [], anomalies: [] });
+      geminiService.generateInsights.mockResolvedValue({
+        summary: null,
+        subscriptions: [],
+        anomalies: [],
+      });
 
       const result = await service.getAiInsights(1, undefined, 'all');
       expect(result.summary).toBe('');
@@ -247,12 +303,16 @@ describe('AnalyticsService', () => {
         geminiService.generateInsights.mockResolvedValue({
           summary: 'ok',
           // Gemini misreads/hallucinates 199 — the real charge was 649.
-          subscriptions: [{ name: 'Netflix', amount: 199, frequency: 'Monthly' }],
+          subscriptions: [
+            { name: 'Netflix', amount: 199, frequency: 'Monthly' },
+          ],
           anomalies: [],
         });
 
         const result = await service.getAiInsights(1, undefined, 'all');
-        expect(result.subscriptions).toEqual([{ name: 'Netflix', amount: 649, frequency: 'Monthly' }]);
+        expect(result.subscriptions).toEqual([
+          { name: 'Netflix', amount: 649, frequency: 'Monthly' },
+        ]);
       });
 
       it('drops a subscription that matches no real transaction (hallucinated vendor)', async () => {
@@ -260,7 +320,9 @@ describe('AnalyticsService', () => {
         fakeQb.getMany.mockResolvedValue([netflixTx]);
         geminiService.generateInsights.mockResolvedValue({
           summary: 'ok',
-          subscriptions: [{ name: 'Disney+', amount: 299, frequency: 'Monthly' }],
+          subscriptions: [
+            { name: 'Disney+', amount: 299, frequency: 'Monthly' },
+          ],
           anomalies: [],
         });
 
@@ -290,7 +352,9 @@ describe('AnalyticsService', () => {
         fakeQb.getMany.mockResolvedValue([{ ...netflixTx, type: 'CREDIT' }]); // a refund, not a charge
         geminiService.generateInsights.mockResolvedValue({
           summary: 'ok',
-          subscriptions: [{ name: 'Netflix', amount: 649, frequency: 'Monthly' }],
+          subscriptions: [
+            { name: 'Netflix', amount: 649, frequency: 'Monthly' },
+          ],
           anomalies: [],
         });
 
@@ -301,7 +365,10 @@ describe('AnalyticsService', () => {
       it('gracefully returns [] when subscriptions is missing or malformed', async () => {
         aiInsightsCache.get.mockReturnValue(undefined);
         fakeQb.getMany.mockResolvedValue([netflixTx]);
-        geminiService.generateInsights.mockResolvedValue({ summary: 'ok', anomalies: [] }); // no subscriptions key
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          anomalies: [],
+        }); // no subscriptions key
 
         const result = await service.getAiInsights(1, undefined, 'all');
         expect(result.subscriptions).toEqual([]);
@@ -312,7 +379,10 @@ describe('AnalyticsService', () => {
         fakeQb.getMany.mockResolvedValue([netflixTx]);
         geminiService.generateInsights.mockResolvedValue({
           summary: 'ok',
-          subscriptions: [{ amount: 649, frequency: 'Monthly' }, 'not even an object'],
+          subscriptions: [
+            { amount: 649, frequency: 'Monthly' },
+            'not even an object',
+          ],
           anomalies: [],
         });
 
@@ -336,11 +406,15 @@ describe('AnalyticsService', () => {
         geminiService.generateInsights.mockResolvedValue({
           summary: 'ok',
           subscriptions: [],
-          anomalies: ['Detected a large unusual payment of ₹50,000 for Apple Store.'],
+          anomalies: [
+            'Detected a large unusual payment of ₹50,000 for Apple Store.',
+          ],
         });
 
         const result = await service.getAiInsights(1, undefined, 'all');
-        expect(result.anomalies).toEqual(['Detected a large unusual payment of ₹50,000 for Apple Store.']);
+        expect(result.anomalies).toEqual([
+          'Detected a large unusual payment of ₹50,000 for Apple Store.',
+        ]);
       });
 
       it('drops an anomaly sentence whose figure matches no real transaction', async () => {
@@ -349,7 +423,9 @@ describe('AnalyticsService', () => {
         geminiService.generateInsights.mockResolvedValue({
           summary: 'ok',
           subscriptions: [],
-          anomalies: ['Detected a suspicious payment of ₹99,999 to an unknown merchant.'],
+          anomalies: [
+            'Detected a suspicious payment of ₹99,999 to an unknown merchant.',
+          ],
         });
 
         const result = await service.getAiInsights(1, undefined, 'all');
@@ -359,7 +435,10 @@ describe('AnalyticsService', () => {
       it('gracefully returns [] when anomalies is missing or malformed', async () => {
         aiInsightsCache.get.mockReturnValue(undefined);
         fakeQb.getMany.mockResolvedValue([bigTx]);
-        geminiService.generateInsights.mockResolvedValue({ summary: 'ok', subscriptions: [] }); // no anomalies key
+        geminiService.generateInsights.mockResolvedValue({
+          summary: 'ok',
+          subscriptions: [],
+        }); // no anomalies key
 
         const result = await service.getAiInsights(1, undefined, 'all');
         expect(result.anomalies).toEqual([]);
@@ -384,7 +463,9 @@ describe('AnalyticsService', () => {
   // financeChat — top-level routing
   // ---------------------------------------------------------------------
   describe('financeChat', () => {
-    function mockParse(overrides: Partial<FinanceChatParseResult> = {}): FinanceChatParseResult {
+    function mockParse(
+      overrides: Partial<FinanceChatParseResult> = {},
+    ): FinanceChatParseResult {
       return {
         intent: 'sum_debits',
         filters: emptyFilters(),
@@ -395,7 +476,10 @@ describe('AnalyticsService', () => {
 
     it('returns the LLM-provided clarify message when intent is "clarify"', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'clarify', clarifyMessage: 'Which account do you mean?' }),
+        mockParse({
+          intent: 'clarify',
+          clarifyMessage: 'Which account do you mean?',
+        }),
       );
       const result = await service.financeChat(1, 'how much did I spend');
       expect(result.answer).toBe('Which account do you mean?');
@@ -403,30 +487,43 @@ describe('AnalyticsService', () => {
     });
 
     it('falls back to a generic clarify prompt when clarifyMessage is empty', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'clarify', clarifyMessage: '  ' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'clarify', clarifyMessage: '  ' }),
+      );
       const result = await service.financeChat(1, 'huh');
       expect(result.answer).toContain('Could you specify');
     });
 
     it('returns a canned help message when intent is "unknown"', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'unknown' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'unknown' }),
+      );
       const result = await service.financeChat(1, 'tell me a joke');
-      expect(result.answer).toContain('I can answer questions about your recorded transactions');
+      expect(result.answer).toContain(
+        'I can answer questions about your recorded transactions',
+      );
       expect(transactionsRepository.createQueryBuilder).not.toHaveBeenCalled();
     });
 
     it('returns a no-match message when an accountId filter matches no account, without querying transactions', async () => {
-      accountsService.findAllByUser.mockResolvedValue([{ id: 1, bank_name: 'HDFC' }]);
+      accountsService.findAllByUser.mockResolvedValue([
+        { id: 1, bank_name: 'HDFC' },
+      ]);
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({ filters: emptyFilters({ accountId: 999 }) }),
       );
-      const result = await service.financeChat(1, 'how much did I spend on account 999');
+      const result = await service.financeChat(
+        1,
+        'how much did I spend on account 999',
+      );
       expect(result.answer).toContain('No account matched');
       expect(transactionsRepository.createQueryBuilder).not.toHaveBeenCalled();
     });
 
     it('returns a no-match message when a bankName filter matches no account', async () => {
-      accountsService.findAllByUser.mockResolvedValue([{ id: 1, bank_name: 'HDFC' }]);
+      accountsService.findAllByUser.mockResolvedValue([
+        { id: 1, bank_name: 'HDFC' },
+      ]);
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({ filters: emptyFilters({ bankName: 'ICICI' }) }),
       );
@@ -443,18 +540,25 @@ describe('AnalyticsService', () => {
     });
 
     it('sum_debits: reports total debit spending, with and without a category filter', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'sum_debits' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'sum_debits' }),
+      );
       fakeQb.getCount.mockResolvedValue(3);
       fakeQb.getRawOne.mockResolvedValue({ sum: '12345.00' });
 
       const result = await service.financeChat(1, 'how much did I spend');
-      expect(result.answer).toContain('total debit spending on all your accounts was');
+      expect(result.answer).toContain(
+        'total debit spending on all your accounts was',
+      );
       expect(result.answer).toContain('12,345');
     });
 
     it('sum_debits: mentions the category when one is given', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'sum_debits', filters: emptyFilters({ category: 'Food' }) }),
+        mockParse({
+          intent: 'sum_debits',
+          filters: emptyFilters({ category: 'Food' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(3);
       fakeQb.getRawOne.mockResolvedValue({ sum: '500.00' });
@@ -464,16 +568,22 @@ describe('AnalyticsService', () => {
     });
 
     it('sum_credits: reports total credits, with and without a category filter', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'sum_credits' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'sum_credits' }),
+      );
       fakeQb.getCount.mockResolvedValue(2);
       fakeQb.getRawOne.mockResolvedValue({ sum: '50000.00' });
 
       const result = await service.financeChat(1, 'how much did I earn');
-      expect(result.answer).toContain('total credits on all your accounts were');
+      expect(result.answer).toContain(
+        'total credits on all your accounts were',
+      );
     });
 
     it('net_flow: reports credits, debits, and the net (positive)', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'net_flow' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'net_flow' }),
+      );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne
         .mockResolvedValueOnce({ sum: '10000.00' }) // credits
@@ -485,16 +595,23 @@ describe('AnalyticsService', () => {
     });
 
     it('top_category: reports the highest-spend category', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'top_category' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'top_category' }),
+      );
       fakeQb.getCount.mockResolvedValue(4);
-      fakeQb.getRawOne.mockResolvedValue({ name: 'Shopping', total: '7000.00' });
+      fakeQb.getRawOne.mockResolvedValue({
+        name: 'Shopping',
+        total: '7000.00',
+      });
 
       const result = await service.financeChat(1, 'top category last month');
       expect(result.answer).toContain('“Shopping”');
     });
 
     it('top_category: reports "no debit categories" when nothing was found', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'top_category' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'top_category' }),
+      );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue(null);
 
@@ -504,19 +621,26 @@ describe('AnalyticsService', () => {
 
     it('top_category: applies a category hint filter when the user names one', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'top_category', filters: emptyFilters({ category: 'Food' }) }),
+        mockParse({
+          intent: 'top_category',
+          filters: emptyFilters({ category: 'Food' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ name: null, total: '1200.00' });
 
       const result = await service.financeChat(1, 'top category matching food');
-      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.category ILIKE :hint', { hint: '%Food%' });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.category ILIKE :hint', {
+        hint: '%Food%',
+      });
       // A null category name from the DB still falls back to "Other".
       expect(result.answer).toContain('“Other”');
     });
 
     it('top_category: reports "no debit categories" when the top row total is zero', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'top_category' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'top_category' }),
+      );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ name: 'Food', total: '0' });
 
@@ -526,17 +650,25 @@ describe('AnalyticsService', () => {
 
     it('compare_amount: asks for a number when no amount was parsed', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'compare_amount', filters: emptyFilters({ amount: null }) }),
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amount: null }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
 
       const result = await service.financeChat(1, 'did I spend a lot');
-      expect(result.answer).toContain('I could not tell which amount to compare');
+      expect(result.answer).toContain(
+        'I could not tell which amount to compare',
+      );
     });
 
     it('compare_amount: "gte" passes when spend meets the threshold', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'compare_amount', filters: emptyFilters({ amount: 10000, compareOp: 'gte' }) }),
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amount: 10000, compareOp: 'gte' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ sum: '15000.00' });
@@ -548,7 +680,10 @@ describe('AnalyticsService', () => {
 
     it('compare_amount: "gte" fails when spend is below the threshold', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'compare_amount', filters: emptyFilters({ amount: 10000, compareOp: 'gte' }) }),
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amount: 10000, compareOp: 'gte' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ sum: '5000.00' });
@@ -559,7 +694,10 @@ describe('AnalyticsService', () => {
 
     it('compare_amount: "lte" passes when spend is at or below the threshold', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'compare_amount', filters: emptyFilters({ amount: 10000, compareOp: 'lte' }) }),
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amount: 10000, compareOp: 'lte' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ sum: '5000.00' });
@@ -571,7 +709,10 @@ describe('AnalyticsService', () => {
 
     it('compare_amount: "eq" passes on an exact (float-tolerant) match', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'compare_amount', filters: emptyFilters({ amount: 10000, compareOp: 'eq' }) }),
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amount: 10000, compareOp: 'eq' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ sum: '10000.00' });
@@ -583,7 +724,10 @@ describe('AnalyticsService', () => {
 
     it('compare_amount: "eq" fails when the amounts differ', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
-        mockParse({ intent: 'compare_amount', filters: emptyFilters({ amount: 10000, compareOp: 'eq' }) }),
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amount: 10000, compareOp: 'eq' }),
+        }),
       );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ sum: '9000.00' });
@@ -593,7 +737,9 @@ describe('AnalyticsService', () => {
     });
 
     it('investment_estimate: reports estimated investment-like debits', async () => {
-      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse({ intent: 'investment_estimate' }));
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'investment_estimate' }),
+      );
       fakeQb.getCount.mockResolvedValue(4);
       fakeQb.getRawOne.mockResolvedValue({ sum: '2000.00' });
 
@@ -602,7 +748,9 @@ describe('AnalyticsService', () => {
     });
 
     it('describes a single-account scope by bank name and account id', async () => {
-      accountsService.findAllByUser.mockResolvedValue([{ id: 7, bank_name: 'HDFC' }]);
+      accountsService.findAllByUser.mockResolvedValue([
+        { id: 7, bank_name: 'HDFC' },
+      ]);
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({ filters: emptyFilters({ accountId: 7 }) }),
       );
@@ -633,23 +781,38 @@ describe('AnalyticsService', () => {
   // Private helpers — tested directly for exhaustive branch coverage
   // ---------------------------------------------------------------------
   describe('resolveChatDateRange (private)', () => {
-    const call = (filters: Partial<FinanceChatFilters>, todayIsoStr = '2026-03-15') =>
+    const call = (
+      filters: Partial<FinanceChatFilters>,
+      todayIsoStr = '2026-03-15',
+    ) =>
       (service as any).resolveChatDateRange(emptyFilters(filters), todayIsoStr);
 
     it('uses explicit from/to when both are set', () => {
-      expect(call({ from: '2026-01-01', to: '2026-01-31' })).toEqual({ from: '2026-01-01', to: '2026-01-31' });
+      expect(call({ from: '2026-01-01', to: '2026-01-31' })).toEqual({
+        from: '2026-01-01',
+        to: '2026-01-31',
+      });
     });
 
     it('uses from through today when only from is set', () => {
-      expect(call({ from: '2026-01-01' })).toEqual({ from: '2026-01-01', to: '2026-03-15' });
+      expect(call({ from: '2026-01-01' })).toEqual({
+        from: '2026-01-01',
+        to: '2026-03-15',
+      });
     });
 
     it('uses the epoch through "to" when only to is set', () => {
-      expect(call({ to: '2026-01-31' })).toEqual({ from: '1970-01-01', to: '2026-01-31' });
+      expect(call({ to: '2026-01-31' })).toEqual({
+        from: '1970-01-01',
+        to: '2026-01-31',
+      });
     });
 
     it('falls back to the "relative" filter when neither from nor to is set', () => {
-      expect(call({ relative: 'this_year' })).toEqual({ from: '2026-01-01', to: '2026-03-15' });
+      expect(call({ relative: 'this_year' })).toEqual({
+        from: '2026-01-01',
+        to: '2026-03-15',
+      });
     });
 
     it('defaults to last_30_days when nothing is set at all', () => {
@@ -684,8 +847,10 @@ describe('AnalyticsService', () => {
 
   describe('describeAccountScope (private)', () => {
     const accounts = [{ id: 1, bank_name: 'HDFC' } as any];
-    const call = (accountIds: number[] | undefined, bankName: string | null = null) =>
-      (service as any).describeAccountScope(accounts, accountIds, bankName);
+    const call = (
+      accountIds: number[] | undefined,
+      bankName: string | null = null,
+    ) => (service as any).describeAccountScope(accounts, accountIds, bankName);
 
     it('describes "all your accounts" when accountIds is undefined', () => {
       expect(call(undefined)).toBe('all your accounts');

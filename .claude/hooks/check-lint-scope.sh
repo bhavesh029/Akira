@@ -31,6 +31,16 @@ if printf '%s' "$cmd" | grep -Eq '\bnpm\b[^;&|]*\brun[[:space:]]+lint\b'; then
   deny "npm run lint runs eslint --fix across the entire src/ tree (unscoped). This repo's code doesn't conform to its own prettier config, so this reformats dozens of unrelated files into a huge diff — it already happened once and had to be manually untangled. Instead: run 'npx eslint <the exact files you touched>' without --fix to check, or --fix scoped to those exact files only."
 fi
 
+# A file list piped through `xargs` into eslint (e.g. `git diff --name-only
+# ... | xargs npx eslint --fix`) is itself the scoped-invocation pattern this
+# hook exists to encourage — the actual filenames aren't literal text in the
+# command string, so the heuristics below can't see them. Trust it rather
+# than false-positive on it (this exact false positive happened in practice:
+# see docs/BUGS.md #22).
+if printf '%s' "$cmd" | grep -Eq '\bxargs\b[^|;&]*\beslint\b'; then
+  exit 0
+fi
+
 # Block a bare/glob `eslint --fix` invocation with no specific file path named.
 if printf '%s' "$cmd" | grep -Eq '\beslint\b' && printf '%s' "$cmd" | grep -Eq -- '--fix\b'; then
   if printf '%s' "$cmd" | grep -Eq -- '\*\*' \

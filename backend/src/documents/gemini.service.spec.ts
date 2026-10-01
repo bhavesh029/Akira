@@ -2,7 +2,9 @@ const mockGenerateContent = jest.fn();
 
 jest.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
-    getGenerativeModel: jest.fn().mockReturnValue({ generateContent: mockGenerateContent }),
+    getGenerativeModel: jest
+      .fn()
+      .mockReturnValue({ generateContent: mockGenerateContent }),
   })),
 }));
 
@@ -32,9 +34,12 @@ describe('GeminiService', () => {
 
   describe('extractTransactionsFromText', () => {
     it('sends the extraction prompt + text and returns parsed transactions', async () => {
-      mockGenerateContent.mockResolvedValue(geminiResponse(JSON.stringify([validTx])));
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(JSON.stringify([validTx])),
+      );
 
-      const result = await service.extractTransactionsFromText('raw statement text');
+      const result =
+        await service.extractTransactionsFromText('raw statement text');
 
       const promptArg = mockGenerateContent.mock.calls[0][0];
       expect(promptArg).toContain('financial document parser');
@@ -45,10 +50,15 @@ describe('GeminiService', () => {
 
   describe('extractTransactionsFromFile', () => {
     it('sends the file as base64 inlineData with the given mimeType', async () => {
-      mockGenerateContent.mockResolvedValue(geminiResponse(JSON.stringify([validTx])));
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(JSON.stringify([validTx])),
+      );
       const buffer = Buffer.from('fake-image-bytes');
 
-      const result = await service.extractTransactionsFromFile(buffer, 'image/png');
+      const result = await service.extractTransactionsFromFile(
+        buffer,
+        'image/png',
+      );
 
       const callArg = mockGenerateContent.mock.calls[0][0];
       expect(Array.isArray(callArg)).toBe(true);
@@ -65,12 +75,12 @@ describe('GeminiService', () => {
 
     beforeEach(() => {
       // Skip the real backoff delay — invoke the scheduled callback immediately.
-      setTimeoutSpy = jest
-        .spyOn(global, 'setTimeout')
-        .mockImplementation(((fn: () => void) => {
-          fn();
-          return 0 as any;
-        }) as any);
+      setTimeoutSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((
+        fn: () => void,
+      ) => {
+        fn();
+        return 0 as any;
+      }) as any);
     });
 
     afterEach(() => {
@@ -100,21 +110,30 @@ describe('GeminiService', () => {
     });
 
     it('throws immediately without retrying when the free-tier limit is zero', async () => {
-      mockGenerateContent.mockRejectedValue(new Error('quota limit: 0 for this project'));
+      mockGenerateContent.mockRejectedValue(
+        new Error('quota limit: 0 for this project'),
+      );
 
-      await expect(service.extractTransactionsFromText('text')).rejects.toThrow('limit: 0');
+      await expect(service.extractTransactionsFromText('text')).rejects.toThrow(
+        'limit: 0',
+      );
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
     it('throws immediately without retrying on a non-429, non-zero-limit error', async () => {
       mockGenerateContent.mockRejectedValue(new Error('Network error'));
 
-      await expect(service.extractTransactionsFromText('text')).rejects.toThrow('Network error');
+      await expect(service.extractTransactionsFromText('text')).rejects.toThrow(
+        'Network error',
+      );
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     });
 
     it('exhausts all retries and throws the last error if every attempt fails', async () => {
-      mockGenerateContent.mockRejectedValue({ status: 429, message: 'Too Many Requests' });
+      mockGenerateContent.mockRejectedValue({
+        status: 429,
+        message: 'Too Many Requests',
+      });
 
       await expect(service.extractTransactionsFromText('text')).rejects.toEqual(
         expect.objectContaining({ status: 429 }),
@@ -130,19 +149,27 @@ describe('GeminiService', () => {
     };
 
     it('parses a plain JSON array', async () => {
-      await expect(extract(JSON.stringify([validTx]))).resolves.toEqual([validTx]);
+      await expect(extract(JSON.stringify([validTx]))).resolves.toEqual([
+        validTx,
+      ]);
     });
 
     it('strips ```json ... ``` markdown fences', async () => {
-      await expect(extract('```json\n' + JSON.stringify([validTx]) + '\n```')).resolves.toEqual([validTx]);
+      await expect(
+        extract('```json\n' + JSON.stringify([validTx]) + '\n```'),
+      ).resolves.toEqual([validTx]);
     });
 
     it('strips bare ``` ... ``` fences (no language tag)', async () => {
-      await expect(extract('```\n' + JSON.stringify([validTx]) + '\n```')).resolves.toEqual([validTx]);
+      await expect(
+        extract('```\n' + JSON.stringify([validTx]) + '\n```'),
+      ).resolves.toEqual([validTx]);
     });
 
     it('returns [] and logs a warning when the response is valid JSON but not an array', async () => {
-      await expect(extract(JSON.stringify({ not: 'an array' }))).resolves.toEqual([]);
+      await expect(
+        extract(JSON.stringify({ not: 'an array' })),
+      ).resolves.toEqual([]);
     });
 
     it('returns [] when the response is not valid JSON at all', async () => {
@@ -159,12 +186,16 @@ describe('GeminiService', () => {
     });
 
     it('rejects an entry with an invalid date format', async () => {
-      const raw = JSON.stringify([{ ...validTx, transaction_date: '01-03-2026' }]);
+      const raw = JSON.stringify([
+        { ...validTx, transaction_date: '01-03-2026' },
+      ]);
       await expect(extract(raw)).resolves.toEqual([]);
     });
 
     it('rejects an entry with a calendar-invalid date (e.g. Feb 30)', async () => {
-      const raw = JSON.stringify([{ ...validTx, transaction_date: '2026-02-30' }]);
+      const raw = JSON.stringify([
+        { ...validTx, transaction_date: '2026-02-30' },
+      ]);
       await expect(extract(raw)).resolves.toEqual([]);
     });
 
@@ -183,7 +214,10 @@ describe('GeminiService', () => {
     });
 
     it('defaults type to DEBIT when it is not exactly "CREDIT"', async () => {
-      const raw = JSON.stringify([{ ...validTx, type: 'credit' }, { ...validTx, type: 'garbage' }]);
+      const raw = JSON.stringify([
+        { ...validTx, type: 'credit' },
+        { ...validTx, type: 'garbage' },
+      ]);
       const result = await extract(raw);
       expect(result.every((t) => t.type === 'DEBIT')).toBe(true);
     });
@@ -195,7 +229,9 @@ describe('GeminiService', () => {
     });
 
     it('truncates an overly long description to 255 characters', async () => {
-      const raw = JSON.stringify([{ ...validTx, description: 'x'.repeat(300) }]);
+      const raw = JSON.stringify([
+        { ...validTx, description: 'x'.repeat(300) },
+      ]);
       const result = await extract(raw);
       expect(result[0].description).toHaveLength(255);
     });
@@ -211,14 +247,20 @@ describe('GeminiService', () => {
     it('defaults category to "Other" when absent, and truncates when too long', async () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { category, ...noCategory } = validTx;
-      const raw = JSON.stringify([noCategory, { ...validTx, category: 'y'.repeat(150) }]);
+      const raw = JSON.stringify([
+        noCategory,
+        { ...validTx, category: 'y'.repeat(150) },
+      ]);
       const result = await extract(raw);
       expect(result[0].category).toBe('Other');
       expect(result[1].category).toHaveLength(100);
     });
 
     it('keeps valid entries and silently drops invalid ones from a mixed array', async () => {
-      const raw = JSON.stringify([validTx, { transaction_date: 'bad-date', amount: 100, type: 'DEBIT' }]);
+      const raw = JSON.stringify([
+        validTx,
+        { transaction_date: 'bad-date', amount: 100, type: 'DEBIT' },
+      ]);
       const result = await extract(raw);
       expect(result).toEqual([validTx]);
     });
@@ -226,17 +268,29 @@ describe('GeminiService', () => {
 
   describe('generateInsights', () => {
     it('parses a valid JSON object response', async () => {
-      const payload = { summary: 'You spent a lot', subscriptions: [], anomalies: [] };
-      mockGenerateContent.mockResolvedValue(geminiResponse(JSON.stringify(payload)));
+      const payload = {
+        summary: 'You spent a lot',
+        subscriptions: [],
+        anomalies: [],
+      };
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(JSON.stringify(payload)),
+      );
 
-      await expect(service.generateInsights('prompt')).resolves.toEqual(payload);
+      await expect(service.generateInsights('prompt')).resolves.toEqual(
+        payload,
+      );
     });
 
     it('strips markdown fences before parsing', async () => {
       const payload = { summary: 'ok', subscriptions: [], anomalies: [] };
-      mockGenerateContent.mockResolvedValue(geminiResponse('```json\n' + JSON.stringify(payload) + '\n```'));
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('```json\n' + JSON.stringify(payload) + '\n```'),
+      );
 
-      await expect(service.generateInsights('prompt')).resolves.toEqual(payload);
+      await expect(service.generateInsights('prompt')).resolves.toEqual(
+        payload,
+      );
     });
 
     it('returns a fallback object when the response is not valid JSON', async () => {
@@ -255,14 +309,28 @@ describe('GeminiService', () => {
 
     const parse = (raw: string) => {
       mockGenerateContent.mockResolvedValue(geminiResponse(raw));
-      return service.parseFinanceChatIntent('how much did I spend?', accounts, '2026-03-15');
+      return service.parseFinanceChatIntent(
+        'how much did I spend?',
+        accounts,
+        '2026-03-15',
+      );
     };
 
-    it('includes today\'s date and the account list in the prompt', async () => {
+    it("includes today's date and the account list in the prompt", async () => {
       mockGenerateContent.mockResolvedValue(
-        geminiResponse(JSON.stringify({ intent: 'sum_debits', filters: {}, clarifyMessage: null })),
+        geminiResponse(
+          JSON.stringify({
+            intent: 'sum_debits',
+            filters: {},
+            clarifyMessage: null,
+          }),
+        ),
       );
-      await service.parseFinanceChatIntent('how much did I spend?', accounts, '2026-03-15');
+      await service.parseFinanceChatIntent(
+        'how much did I spend?',
+        accounts,
+        '2026-03-15',
+      );
 
       const promptArg = mockGenerateContent.mock.calls[0][0];
       expect(promptArg).toContain('2026-03-15');
@@ -303,7 +371,13 @@ describe('GeminiService', () => {
     });
 
     it('defaults an unrecognized intent to "unknown"', async () => {
-      const result = await parse(JSON.stringify({ intent: 'delete_everything', filters: {}, clarifyMessage: null }));
+      const result = await parse(
+        JSON.stringify({
+          intent: 'delete_everything',
+          filters: {},
+          clarifyMessage: null,
+        }),
+      );
       expect(result.intent).toBe('unknown');
     });
 
@@ -322,77 +396,129 @@ describe('GeminiService', () => {
     });
 
     it('treats a filters value that is an array as if it were missing', async () => {
-      const result = await parse(JSON.stringify({ intent: 'sum_debits', filters: [1, 2, 3] }));
+      const result = await parse(
+        JSON.stringify({ intent: 'sum_debits', filters: [1, 2, 3] }),
+      );
       expect(result.filters.relative).toBeNull();
       expect(result.filters.amount).toBeNull();
     });
 
     it('rejects an invalid "relative" value', async () => {
-      const result = await parse(JSON.stringify({ intent: 'sum_debits', filters: { relative: 'next_century' } }));
+      const result = await parse(
+        JSON.stringify({
+          intent: 'sum_debits',
+          filters: { relative: 'next_century' },
+        }),
+      );
       expect(result.filters.relative).toBeNull();
     });
 
     it('rejects an invalid "compareOp" value', async () => {
       const result = await parse(
-        JSON.stringify({ intent: 'compare_amount', filters: { compareOp: 'roughly' } }),
+        JSON.stringify({
+          intent: 'compare_amount',
+          filters: { compareOp: 'roughly' },
+        }),
       );
       expect(result.filters.compareOp).toBeNull();
     });
 
     it('floors a numeric accountId', async () => {
-      const result = await parse(JSON.stringify({ intent: 'sum_debits', filters: { accountId: 5.9 } }));
+      const result = await parse(
+        JSON.stringify({ intent: 'sum_debits', filters: { accountId: 5.9 } }),
+      );
       expect(result.filters.accountId).toBe(5);
     });
 
     it('parses a numeric-string accountId', async () => {
-      const result = await parse(JSON.stringify({ intent: 'sum_debits', filters: { accountId: '7' } }));
+      const result = await parse(
+        JSON.stringify({ intent: 'sum_debits', filters: { accountId: '7' } }),
+      );
       expect(result.filters.accountId).toBe(7);
     });
 
     it('rejects a non-numeric-string accountId', async () => {
-      const result = await parse(JSON.stringify({ intent: 'sum_debits', filters: { accountId: 'abc' } }));
+      const result = await parse(
+        JSON.stringify({ intent: 'sum_debits', filters: { accountId: 'abc' } }),
+      );
       expect(result.filters.accountId).toBeNull();
     });
 
     it('keeps a valid numeric amount', async () => {
-      const result = await parse(JSON.stringify({ intent: 'compare_amount', filters: { amount: 5000 } }));
+      const result = await parse(
+        JSON.stringify({ intent: 'compare_amount', filters: { amount: 5000 } }),
+      );
       expect(result.filters.amount).toBe(5000);
     });
 
     it('parses a comma-formatted amount string', async () => {
-      const result = await parse(JSON.stringify({ intent: 'compare_amount', filters: { amount: '10,000' } }));
+      const result = await parse(
+        JSON.stringify({
+          intent: 'compare_amount',
+          filters: { amount: '10,000' },
+        }),
+      );
       expect(result.filters.amount).toBe(10000);
     });
 
     it('rejects a non-numeric amount string', async () => {
-      const result = await parse(JSON.stringify({ intent: 'compare_amount', filters: { amount: 'lots' } }));
+      const result = await parse(
+        JSON.stringify({
+          intent: 'compare_amount',
+          filters: { amount: 'lots' },
+        }),
+      );
       expect(result.filters.amount).toBeNull();
     });
 
     it('rejects an empty-string amount', async () => {
-      const result = await parse(JSON.stringify({ intent: 'compare_amount', filters: { amount: '   ' } }));
+      const result = await parse(
+        JSON.stringify({
+          intent: 'compare_amount',
+          filters: { amount: '   ' },
+        }),
+      );
       expect(result.filters.amount).toBeNull();
     });
 
     it('trims a non-empty clarifyMessage', async () => {
       const result = await parse(
-        JSON.stringify({ intent: 'clarify', filters: {}, clarifyMessage: '  which account?  ' }),
+        JSON.stringify({
+          intent: 'clarify',
+          filters: {},
+          clarifyMessage: '  which account?  ',
+        }),
       );
       expect(result.clarifyMessage).toBe('which account?');
     });
 
     it('treats a whitespace-only clarifyMessage as null', async () => {
-      const result = await parse(JSON.stringify({ intent: 'clarify', filters: {}, clarifyMessage: '   ' }));
+      const result = await parse(
+        JSON.stringify({
+          intent: 'clarify',
+          filters: {},
+          clarifyMessage: '   ',
+        }),
+      );
       expect(result.clarifyMessage).toBeNull();
     });
 
     it('treats a missing/non-string clarifyMessage as null', async () => {
-      const result = await parse(JSON.stringify({ intent: 'sum_debits', filters: {} }));
+      const result = await parse(
+        JSON.stringify({ intent: 'sum_debits', filters: {} }),
+      );
       expect(result.clarifyMessage).toBeNull();
     });
 
     it('strips markdown fences before parsing', async () => {
-      const raw = '```json\n' + JSON.stringify({ intent: 'sum_debits', filters: {}, clarifyMessage: null }) + '\n```';
+      const raw =
+        '```json\n' +
+        JSON.stringify({
+          intent: 'sum_debits',
+          filters: {},
+          clarifyMessage: null,
+        }) +
+        '\n```';
       const result = await parse(raw);
       expect(result.intent).toBe('sum_debits');
     });

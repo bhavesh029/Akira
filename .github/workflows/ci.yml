@@ -72,7 +72,8 @@ jobs:
           set -e
           CHANGED=$(git diff --name-only --diff-filter=ACMR \
             "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
-            -- 'backend/src/**/*.ts' 'backend/test/**/*.ts' | sed 's|^backend/||')
+            -- 'backend/src/*.ts' 'backend/src/**/*.ts' 'backend/test/*.ts' 'backend/test/**/*.ts' \
+            | sed 's|^backend/||' | sort -u)
           if [ -z "$CHANGED" ]; then
             echo "No changed backend TypeScript files to lint."
             exit 0
@@ -121,7 +122,8 @@ jobs:
           set -e
           CHANGED=$(git diff --name-only --diff-filter=ACMR \
             "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
-            -- 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx' | sed 's|^frontend/||')
+            -- 'frontend/src/*.ts' 'frontend/src/*.tsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx' \
+            | sed 's|^frontend/||' | sort -u)
           if [ -z "$CHANGED" ]; then
             echo "No changed frontend TypeScript files to lint."
             exit 0

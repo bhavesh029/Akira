@@ -25,8 +25,12 @@ describe('AuthController rate limiting (Bug #4)', () => {
 
   beforeEach(async () => {
     authService = {
-      register: jest.fn().mockResolvedValue({ access_token: 't', user: { id: 1 } }),
-      login: jest.fn().mockResolvedValue({ access_token: 't', user: { id: 1 } }),
+      register: jest
+        .fn()
+        .mockResolvedValue({ access_token: 't', user: { id: 1 } }),
+      login: jest
+        .fn()
+        .mockResolvedValue({ access_token: 't', user: { id: 1 } }),
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -47,11 +51,17 @@ describe('AuthController rate limiting (Bug #4)', () => {
   });
 
   const loginBody = { email: 'a@example.com', password: 'password123' };
-  const registerBody = { name: 'Ada', email: 'a@example.com', password: 'password123' };
+  const registerBody = {
+    name: 'Ada',
+    email: 'a@example.com',
+    password: 'password123',
+  };
 
   it('allows requests up to the configured limit (5 per minute) on /auth/login', async () => {
     for (let i = 0; i < 5; i++) {
-      const res = await request(app.getHttpServer()).post('/auth/login').send(loginBody);
+      const res = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send(loginBody);
       expect(res.status).not.toBe(429);
     }
     expect(authService.login).toHaveBeenCalledTimes(5);
@@ -62,7 +72,9 @@ describe('AuthController rate limiting (Bug #4)', () => {
       await request(app.getHttpServer()).post('/auth/login').send(loginBody);
     }
 
-    const res = await request(app.getHttpServer()).post('/auth/login').send(loginBody);
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send(loginBody);
 
     expect(res.status).toBe(429);
     expect(authService.login).toHaveBeenCalledTimes(5); // the 6th never reached the service
@@ -70,10 +82,14 @@ describe('AuthController rate limiting (Bug #4)', () => {
 
   it('blocks the 6th /auth/register request within the window with 429', async () => {
     for (let i = 0; i < 5; i++) {
-      await request(app.getHttpServer()).post('/auth/register').send(registerBody);
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send(registerBody);
     }
 
-    const res = await request(app.getHttpServer()).post('/auth/register').send(registerBody);
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send(registerBody);
 
     expect(res.status).toBe(429);
     expect(authService.register).toHaveBeenCalledTimes(5);
@@ -84,7 +100,9 @@ describe('AuthController rate limiting (Bug #4)', () => {
       await request(app.getHttpServer()).post('/auth/login').send(loginBody);
     }
     // login's bucket is now exhausted — register must still be unaffected.
-    const res = await request(app.getHttpServer()).post('/auth/register').send(registerBody);
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send(registerBody);
 
     expect(res.status).not.toBe(429);
     expect(authService.register).toHaveBeenCalledTimes(1);

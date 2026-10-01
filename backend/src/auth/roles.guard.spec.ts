@@ -30,27 +30,40 @@ describe('RolesGuard', () => {
 
   it('allows the request when no @Roles() metadata is present at all', () => {
     reflector.getAllAndOverride.mockReturnValue(undefined);
-    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(true);
+    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(
+      true,
+    );
   });
 
   it('allows the request when @Roles() is present but empty', () => {
     reflector.getAllAndOverride.mockReturnValue([]);
-    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(true);
+    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(
+      true,
+    );
   });
 
   it('allows the request when the user has one of the required roles', () => {
     reflector.getAllAndOverride.mockReturnValue([UserRole.ADMIN]);
-    expect(guard.canActivate(contextWithUser({ role: UserRole.ADMIN }))).toBe(true);
+    expect(guard.canActivate(contextWithUser({ role: UserRole.ADMIN }))).toBe(
+      true,
+    );
   });
 
   it('allows the request when multiple roles are accepted and the user matches one', () => {
-    reflector.getAllAndOverride.mockReturnValue([UserRole.ADMIN, UserRole.USER]);
-    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(true);
+    reflector.getAllAndOverride.mockReturnValue([
+      UserRole.ADMIN,
+      UserRole.USER,
+    ]);
+    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(
+      true,
+    );
   });
 
   it('denies the request when the user does not have a required role', () => {
     reflector.getAllAndOverride.mockReturnValue([UserRole.ADMIN]);
-    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(false);
+    expect(guard.canActivate(contextWithUser({ role: UserRole.USER }))).toBe(
+      false,
+    );
   });
 
   it('denies the request when there is no user on the request at all', () => {

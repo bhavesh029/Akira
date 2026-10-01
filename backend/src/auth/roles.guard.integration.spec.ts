@@ -1,4 +1,12 @@
-import { CanActivate, Controller, ExecutionContext, Get, INestApplication, Injectable, UseGuards } from '@nestjs/common';
+import {
+  CanActivate,
+  Controller,
+  ExecutionContext,
+  Get,
+  INestApplication,
+  Injectable,
+  UseGuards,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { RolesGuard } from './roles.guard';
@@ -56,12 +64,16 @@ describe('RolesGuard (integration, via real HTTP requests)', () => {
   });
 
   it('allows a user with the required role through an @Roles(ADMIN) route', async () => {
-    const res = await request(app.getHttpServer()).get('/test/admin-only').set('x-test-role', 'ADMIN');
+    const res = await request(app.getHttpServer())
+      .get('/test/admin-only')
+      .set('x-test-role', 'ADMIN');
     expect(res.status).toBe(200);
   });
 
   it('blocks a user without the required role with 403', async () => {
-    const res = await request(app.getHttpServer()).get('/test/admin-only').set('x-test-role', 'USER');
+    const res = await request(app.getHttpServer())
+      .get('/test/admin-only')
+      .set('x-test-role', 'USER');
     expect(res.status).toBe(403);
   });
 
@@ -71,7 +83,9 @@ describe('RolesGuard (integration, via real HTTP requests)', () => {
   });
 
   it('allows any authenticated user through a route with no @Roles() at all', async () => {
-    const res = await request(app.getHttpServer()).get('/test/open').set('x-test-role', 'USER');
+    const res = await request(app.getHttpServer())
+      .get('/test/open')
+      .set('x-test-role', 'USER');
     expect(res.status).toBe(200);
   });
 });
