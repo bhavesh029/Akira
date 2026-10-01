@@ -14,6 +14,24 @@ tooling discipline, verification bar), see
 
 ---
 
+## CI
+
+`.github/workflows/ci.yml` runs automatically on every PR and on pushes to `main`:
+
+- **Backend**: install → build → lint (changed files only — see note below) →
+  `npm run test:cov` (unit tests + the coverage thresholds above) → `npm run
+  test:e2e` against a real `pgvector/pgvector:pg16` service container.
+- **Frontend**: install → build → lint (changed files only).
+
+**Why "changed files only" for lint:** both packages have real pre-existing lint
+debt (750+ issues backend, ~11 frontend) that a full-repo gate would fail on
+immediately. The CI lint step diffs the PR against its base branch and only lints
+files actually touched — new/changed code must be clean, but merging isn't
+blocked by debt elsewhere. See `docs/BUGS.md` for the backlog of what a full
+cleanup would need to address.
+
+---
+
 ## Automated tests
 
 Beyond the manual steps below, there's now a real automated test suite —
