@@ -32,6 +32,7 @@
     "@nestjs/mapped-types": "^2.1.0",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "@supabase/supabase-js": "^2.99.1",
     "bcryptjs": "^3.0.3",
@@ -89,8 +90,41 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "**/*.(t|j)s",
+      "!**/*.module.ts",
+      "!**/*.dto.ts",
+      "!entities/**",
+      "!main.ts",
+      "!data-source.ts",
+      "!migrations/**"
     ],
+    "coverageThreshold": {
+      "src/documents/parsers/**/*.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "src/documents/gemini.service.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "src/documents/extraction.service.ts": {
+        "statements": 90,
+        "functions": 80,
+        "lines": 90
+      },
+      "src/analytics/analytics.service.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      },
+      "src/transactions/transactions.service.ts": {
+        "statements": 95,
+        "functions": 95,
+        "lines": 95
+      }
+    },
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }

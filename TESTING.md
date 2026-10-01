@@ -14,6 +14,24 @@ tooling discipline, verification bar), see
 
 ---
 
+## CI
+
+`.github/workflows/ci.yml` runs automatically on every PR and on pushes to `main`:
+
+- **Backend**: install → build → lint (changed files only — see note below) →
+  `npm run test:cov` (unit tests + the coverage thresholds above) → `npm run
+  test:e2e` against a real `pgvector/pgvector:pg16` service container.
+- **Frontend**: install → build → lint (changed files only).
+
+**Why "changed files only" for lint:** both packages have real pre-existing lint
+debt (750+ issues backend, ~11 frontend) that a full-repo gate would fail on
+immediately. The CI lint step diffs the PR against its base branch and only lints
+files actually touched — new/changed code must be clean, but merging isn't
+blocked by debt elsewhere. See `docs/BUGS.md` for the backlog of what a full
+cleanup would need to address.
+
+---
+
 ## Automated tests
 
 Beyond the manual steps below, there's now a real automated test suite —
@@ -23,12 +41,29 @@ run it any time with:
 cd backend && npm test
 ```
 
-As of Phase 0: 57 tests passing across 9 suites, including dedicated coverage for
-the timezone-safe date math (`date-range.util.spec.ts`), the decimal transformer
-(`decimal.transformer.spec.ts`), and the extraction fallback fix
-(`extraction.service.spec.ts`). Manual testing below is still worthwhile since it
-exercises the real HTTP/DB/Gemini path end-to-end, which the unit tests
-intentionally mock out.
+As of the `fix/critical-bugs-batch-1` branch: **258 tests passing across 17 suites**.
+Beyond Phase 0's original coverage (timezone-safe date math, decimal transformer,
+extraction fallback fix), the financial-critical surface now has enforced coverage
+thresholds — run `npm run test:cov` to see the report and confirm nothing regresses
+below the thresholds in `backend/package.json`'s `jest.coverageThreshold`. It also
+now includes real end-to-end proofs (via `supertest`, real HTTP requests, not mocked
+behavior) for all four fixed High-severity bugs (`docs/BUGS.md` #4/#5/#6/#8):
+rate limiting on `/auth/login` and `/auth/register`, AI-insights figures verified
+against real transactions before reaching the user, the `RolesGuard`/`@Roles()`
+mechanism, and query-param validation on `GET /transactions`.
+
+| Area | Statements | Notes |
+|---|---|---|
+| All 6 bank parsers + factory | 100% | Includes the empirically-verified HDFC regex behavior (a double space before the amount is what triggers the CREDIT/deposit branch — worth knowing if you're editing that regex). |
+| `gemini.service.ts` | 98.6% | Full mock of the `@google/generative-ai` SDK — covers retry/backoff, the 429 and "limit: 0" special cases, and every validation branch in response parsing. |
+| `extraction.service.ts` | 92.5% | Includes the Bug #2 (atomicity) and Bug #3 (CSV routing) regression tests. |
+| `analytics.service.ts` | 100% | Every `financeChat` intent branch, `getSummary`, `getAiInsights` (cache hit/miss/empty), and all private helpers tested directly. |
+| `transactions.service.ts` | 100% | Full CRUD, pagination clamping, and every filter branch — including the documented (not yet fixed) single-sided `from`/`to` date-filter gap, bug #16. |
+
+Manual testing below is still worthwhile since it exercises the real HTTP/DB/Gemini
+path end-to-end, which the unit tests intentionally mock out. Not yet covered:
+`documents.service.ts`/`.controller.ts`, `accounts.service.ts`/`.controller.ts`,
+`transactions.controller.ts` — see `docs/BUGS.md` #20.
 
 ---
 

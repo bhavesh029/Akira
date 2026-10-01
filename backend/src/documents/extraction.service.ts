@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { Document, DocumentStatus } from '../entities/document.entity';
-import { Transaction } from '../entities/transaction.entity';
+import { Transaction, TransactionType } from '../entities/transaction.entity';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { GeminiService, ExtractedTransaction } from './gemini.service';
 import { PDFParse } from 'pdf-parse';
@@ -18,7 +18,12 @@ const MIN_TEXT_LENGTH = 50;
  */
 function transactionFingerprint(
   accountId: number,
-  tx: { transaction_date: string; amount: number; type: string; description?: string },
+  tx: {
+    transaction_date: string;
+    amount: number;
+    type: string;
+    description?: string;
+  },
 ): string {
   const desc = (tx.description ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
   const amount = Number(tx.amount).toFixed(2);
@@ -45,7 +50,9 @@ export class ExtractionService {
    * Called asynchronously after upload (fire-and-forget).
    */
   async process(document: Document, password?: string): Promise<void> {
-    this.logger.log(`Starting extraction for document ${document.id} (${document.title})`);
+    this.logger.log(
+      `Starting extraction for document ${document.id} (${document.title})`,
+    );
 
     try {
       // 1. Mark as PROCESSING
@@ -72,7 +79,9 @@ export class ExtractionService {
         }
 
         if (text.length >= MIN_TEXT_LENGTH) {
-          this.logger.log(`PDF has ${text.length} chars of text, using deterministic parser factory`);
+          this.logger.log(
+            `PDF has ${text.length} chars of text, using deterministic parser factory`,
+          );
           try {
             extracted = this.parserFactory.parseText(text);
           } catch (err) {
@@ -87,18 +96,38 @@ export class ExtractionService {
             this.logger.log(
               `Deterministic parser produced no transactions for document ${document.id}, falling back to Gemini text extraction`,
             );
-            extracted = await this.geminiService.extractTransactionsFromText(text);
+            extracted =
+              await this.geminiService.extractTransactionsFromText(text);
           }
         } else {
-          this.logger.log('PDF has little/no text, using multimodal vision extraction');
-          extracted = await this.geminiService.extractTransactionsFromFile(fileBuffer, mimeType);
+          this.logger.log(
+            'PDF has little/no text, using multimodal vision extraction',
+          );
+          extracted = await this.geminiService.extractTransactionsFromFile(
+            fileBuffer,
+            mimeType,
+          );
         }
+      } else if (mimeType === 'text/csv') {
+        // CSV is plain text, not an image — must go through text extraction,
+        // never the vision/inlineData path (which expects an actual image).
+        const csvText = fileBuffer.toString('utf-8').trim();
+        this.logger.log(
+          `CSV file with ${csvText.length} chars, using text extraction`,
+        );
+        extracted =
+          await this.geminiService.extractTransactionsFromText(csvText);
       } else {
         // Images (PNG, JPG) — always use vision
-        extracted = await this.geminiService.extractTransactionsFromFile(fileBuffer, mimeType);
+        extracted = await this.geminiService.extractTransactionsFromFile(
+          fileBuffer,
+          mimeType,
+        );
       }
 
-      this.logger.log(`Extracted ${extracted.length} transactions from document ${document.id}`);
+      this.logger.log(
+        `Extracted ${extracted.length} transactions from document ${document.id}`,
+      );
 
       // 4. Deduplicate: filter out transactions that already exist for this account
       let toSave = extracted;
@@ -119,7 +148,7 @@ export class ExtractionService {
           existing.map((t) =>
             transactionFingerprint(document.accountId as number, {
               transaction_date: t.transaction_date,
-              amount: t.amount as number,
+              amount: t.amount,
               type: t.type,
               description: t.description ?? undefined,
             }),
@@ -127,7 +156,10 @@ export class ExtractionService {
         );
 
         toSave = extracted.filter(
-          (tx) => !existingFingerprints.has(transactionFingerprint(document.accountId as number, tx)),
+          (tx) =>
+            !existingFingerprints.has(
+              transactionFingerprint(document.accountId as number, tx),
+            ),
         );
 
         const duplicateCount = extracted.length - toSave.length;
@@ -155,7 +187,7 @@ export class ExtractionService {
           this.transactionsRepository.create({
             transaction_date: tx.transaction_date,
             amount: tx.amount,
-            type: tx.type as any,
+            type: tx.type as TransactionType,
             description: tx.description,
             category: tx.category,
             userId: document.userId,
@@ -164,19 +196,38 @@ export class ExtractionService {
           }),
         );
 
-        await this.transactionsRepository.save(transactions);
+        // Save the new transactions and mark the document COMPLETED atomically
+        // — these must not be two independently-failable writes. Without this,
+        // a crash/error between them could leave transactions saved against a
+        // document stuck on PROCESSING, or (if the status update itself fails)
+        // a document marked FAILED whose transactions were already persisted.
+        await this.transactionsRepository.manager.transaction(
+          async (manager) => {
+            await manager.save(transactions);
+            await manager.update(Document, document.id, {
+              status: DocumentStatus.COMPLETED,
+            });
+          },
+        );
+
         this.aiInsightsCache.invalidateForUser(document.userId);
-        this.logger.log(`Saved ${transactions.length} transactions for document ${document.id}`);
+        this.logger.log(
+          `Saved ${transactions.length} transactions for document ${document.id}`,
+        );
+      } else {
+        // Nothing to save — a single write, no atomicity concern.
+        await this.documentsRepository.update(document.id, {
+          status: DocumentStatus.COMPLETED,
+        });
       }
 
-      // 6. Mark as COMPLETED
-      await this.documentsRepository.update(document.id, {
-        status: DocumentStatus.COMPLETED,
-      });
-
-      this.logger.log(`Document ${document.id} extraction completed successfully`);
+      this.logger.log(
+        `Document ${document.id} extraction completed successfully`,
+      );
     } catch (err) {
-      this.logger.error(`Extraction failed for document ${document.id}: ${err}`);
+      this.logger.error(
+        `Extraction failed for document ${document.id}: ${err}`,
+      );
 
       // Mark as FAILED
       await this.documentsRepository.update(document.id, {
@@ -188,12 +239,17 @@ export class ExtractionService {
   private guessMimeType(filePath: string): string {
     const ext = filePath.split('.').pop()?.toLowerCase();
     switch (ext) {
-      case 'pdf': return 'application/pdf';
-      case 'png': return 'image/png';
+      case 'pdf':
+        return 'application/pdf';
+      case 'png':
+        return 'image/png';
       case 'jpg':
-      case 'jpeg': return 'image/jpeg';
-      case 'csv': return 'text/csv';
-      default: return 'application/octet-stream';
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'csv':
+        return 'text/csv';
+      default:
+        return 'application/octet-stream';
     }
   }
 }
