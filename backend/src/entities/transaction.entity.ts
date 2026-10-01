@@ -2,6 +2,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, Jo
 import { User } from './user.entity';
 import { Account } from './account.entity';
 import { Document } from './document.entity';
+import { DecimalTransformer } from './transformers/decimal.transformer';
 
 export enum TransactionType {
   CREDIT = 'CREDIT',
@@ -37,7 +38,7 @@ export class Transaction {
   @Column({ type: 'date' })
   transaction_date: string;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
   amount: number;
 
   @Column({ type: 'enum', enum: TransactionType })

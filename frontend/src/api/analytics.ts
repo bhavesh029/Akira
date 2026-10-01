@@ -31,7 +31,14 @@ export interface AiInsights {
   anomalies: string[];
 }
 
+export interface FinanceChatResponse {
+  answer: string;
+}
+
 export const analyticsApi = {
+  chat: (message: string) =>
+    api.post<FinanceChatResponse>('/analytics/chat', { message }),
+
   getSummary: (accountId?: number, dateRange?: string) => {
     const params: Record<string, string | number> = {};
     if (accountId != null) params.accountId = accountId;

@@ -1,6 +1,7 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AnalyticsService } from './analytics.service';
+import { FinanceChatDto } from './dto/finance-chat.dto';
 
 @Controller('analytics')
 @UseGuards(AuthGuard('jwt'))
@@ -33,5 +34,10 @@ export class AnalyticsController {
       accountIdNum != null && !isNaN(accountIdNum) ? accountIdNum : undefined,
       dateRange,
     );
+  }
+
+  @Post('chat')
+  financeChat(@Req() req: any, @Body() dto: FinanceChatDto) {
+    return this.analyticsService.financeChat(req.user.id, dto.message);
   }
 }

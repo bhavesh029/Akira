@@ -7,6 +7,7 @@ import { SupabaseStorageService } from './supabase-storage.service';
 import { GeminiService, ExtractedTransaction } from './gemini.service';
 import { PDFParse } from 'pdf-parse';
 import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
+import { ParserFactory } from './parsers/parser.factory';
 
 // Minimum characters to consider a PDF as having usable text
 const MIN_TEXT_LENGTH = 50;
@@ -36,6 +37,7 @@ export class ExtractionService {
     private readonly storageService: SupabaseStorageService,
     private readonly geminiService: GeminiService,
     private readonly aiInsightsCache: AiInsightsCacheService,
+    private readonly parserFactory: ParserFactory,
   ) {}
 
   /**
@@ -70,17 +72,22 @@ export class ExtractionService {
         }
 
         if (text.length >= MIN_TEXT_LENGTH) {
-          this.logger.log(`PDF has ${text.length} chars of text, using text extraction`);
-          extracted = await this.geminiService.extractTransactionsFromText(text);
-          // Fallback: if text extraction yields nothing, retry with vision (handles garbled/feeble text)
+          this.logger.log(`PDF has ${text.length} chars of text, using deterministic parser factory`);
+          try {
+            extracted = this.parserFactory.parseText(text);
+          } catch (err) {
+            this.logger.warn(
+              `No deterministic parser matched document ${document.id}, falling back to Gemini text extraction: ${err}`,
+            );
+          }
+          // A matched-but-empty parser (several banks are stubs today) is
+          // indistinguishable from "no transactions on this statement" unless
+          // we fall back — so treat zero results the same as no parser match.
           if (extracted.length === 0) {
             this.logger.log(
-              'Text extraction returned 0 transactions, retrying with vision for better OCR',
+              `Deterministic parser produced no transactions for document ${document.id}, falling back to Gemini text extraction`,
             );
-            extracted = await this.geminiService.extractTransactionsFromFile(
-              fileBuffer,
-              mimeType,
-            );
+            extracted = await this.geminiService.extractTransactionsFromText(text);
           }
         } else {
           this.logger.log('PDF has little/no text, using multimodal vision extraction');
