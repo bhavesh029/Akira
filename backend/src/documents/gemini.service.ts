@@ -114,6 +114,45 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
     return this.parseResponse(response);
   }
 
+  /** Stringifies an arbitrary unknown value for logging without risking a useless "[object Object]". */
+  private static safeString(value: unknown): string {
+    if (value === null || value === undefined) return String(value);
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return Object.prototype.toString.call(value);
+    }
+  }
+
+  /**
+   * Safely extracts a status code and message from an unknown thrown value
+   * (the Gemini SDK doesn't export a typed error class), without resorting
+   * to `any`.
+   */
+  private static describeError(err: unknown): {
+    status?: number;
+    message: string;
+  } {
+    if (err && typeof err === 'object') {
+      const status =
+        'status' in err &&
+        typeof (err as { status: unknown }).status === 'number'
+          ? (err as { status: number }).status
+          : undefined;
+      const message =
+        'message' in err &&
+        typeof (err as { message: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : GeminiService.safeString(err);
+      return { status, message };
+    }
+    return { message: GeminiService.safeString(err) };
+  }
+
   /**
    * Helper to add exponential backoff for 429 Too Many Requests errors.
    */
@@ -121,14 +160,15 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
     operation: () => Promise<T>,
     maxRetries = 3,
   ): Promise<T> {
-    let lastError: any;
+    let lastError: unknown;
     for (let i = 0; i < maxRetries; i++) {
       try {
         return await operation();
-      } catch (error: any) {
+      } catch (error: unknown) {
         lastError = error;
+        const { status, message } = GeminiService.describeError(error);
         // Check if it's a 429 rate limit
-        if (error?.status === 429 || error?.message?.includes('429')) {
+        if (status === 429 || message.includes('429')) {
           const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
           this.logger.warn(
             `Rate limit hit (429). Retrying in ${Math.round(delay)}ms...`,
@@ -138,7 +178,7 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
         }
         // If it throws limit: 0 or isn't a 429, we still pass the error along eventually
         // But for limit: 0, it will loop if the text includes '429', so we handle that specifically:
-        if (error?.message?.includes('limit: 0')) {
+        if (message.includes('limit: 0')) {
           this.logger.error(
             'Gemini Free Tier limit is ZERO in your region/account. Please enable billing on your Google API project.',
           );
@@ -179,6 +219,11 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
     return Math.round(num * 100) / 100;
   }
 
+  /** Shape of one raw transaction object as parsed from Gemini's JSON response, before validation. */
+  private static isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+  }
+
   /**
    * Parse the LLM JSON response into typed transactions.
    * Validates amounts and dates to filter out OCR/LLM errors.
@@ -193,7 +238,7 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
           .replace(/\n?```$/, '');
       }
 
-      const parsed = JSON.parse(cleaned);
+      const parsed: unknown = JSON.parse(cleaned);
 
       if (!Array.isArray(parsed)) {
         this.logger.warn('Gemini response was not an array, returning empty');
@@ -203,18 +248,24 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
       const results: ExtractedTransaction[] = [];
       let rejectedCount = 0;
 
-      for (const t of parsed) {
+      for (const raw of parsed as unknown[]) {
+        if (!GeminiService.isRecord(raw)) {
+          rejectedCount++;
+          continue;
+        }
+        const t = raw;
+
         if (!t.transaction_date || t.amount == null || !t.type) {
           rejectedCount++;
           continue;
         }
 
-        const dateStr = String(t.transaction_date).trim();
+        const dateStr = GeminiService.safeString(t.transaction_date).trim();
         const amount = GeminiService.sanitizeAmount(t.amount);
 
         if (!GeminiService.isValidDate(dateStr)) {
           this.logger.warn(
-            `Rejected transaction: invalid date "${dateStr}" (amount: ${t.amount}, desc: ${t.description})`,
+            `Rejected transaction: invalid date "${dateStr}" (amount: ${GeminiService.safeString(t.amount)}, desc: ${GeminiService.safeString(t.description)})`,
           );
           rejectedCount++;
           continue;
@@ -222,7 +273,7 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
 
         if (amount === null) {
           this.logger.warn(
-            `Rejected transaction: invalid amount "${t.amount}" (date: ${dateStr}, desc: ${t.description})`,
+            `Rejected transaction: invalid amount "${GeminiService.safeString(t.amount)}" (date: ${dateStr}, desc: ${GeminiService.safeString(t.description)})`,
           );
           rejectedCount++;
           continue;
@@ -233,9 +284,11 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
           amount,
           type: t.type === 'CREDIT' ? 'CREDIT' : 'DEBIT',
           description: t.description
-            ? String(t.description).slice(0, 255)
+            ? GeminiService.safeString(t.description).slice(0, 255)
             : undefined,
-          category: t.category ? String(t.category).slice(0, 100) : 'Other',
+          category: t.category
+            ? GeminiService.safeString(t.category).slice(0, 100)
+            : 'Other',
         });
       }
 
@@ -271,14 +324,7 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
       // etc.) must never propagate as an unhandled 500 that leaves the
       // insights panel silently blank — report it as a (non-fatal) insights
       // failure instead, same shape as a JSON-parse failure below.
-      const status =
-        err && typeof err === 'object' && 'status' in err
-          ? (err as { status: unknown }).status
-          : undefined;
-      const message =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message: unknown }).message)
-          : String(err);
+      const { status, message } = GeminiService.describeError(err);
       const isBilling =
         status === 402 || /prepayment|billing|quota/i.test(message);
       this.logger.error(`Gemini insights request failed: ${message}`);
