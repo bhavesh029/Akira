@@ -37,8 +37,14 @@ describe('TransactionsService', () => {
       save: jest.fn((data) => ({ id: 1, ...data })),
       createQueryBuilder: jest.fn().mockReturnValue(fakeQb),
       findOne: jest.fn(),
+      find: jest.fn().mockResolvedValue([]),
       remove: jest.fn().mockResolvedValue(undefined),
       count: jest.fn().mockResolvedValue(0),
+      manager: {
+        transaction: jest.fn(async (cb: (manager: any) => Promise<void>) =>
+          cb({ update: jest.fn() }),
+        ),
+      },
     };
     accountsService = {
       findOne: jest.fn().mockResolvedValue({ id: 1, userId: 10 }),
@@ -330,6 +336,56 @@ describe('TransactionsService', () => {
       expect(transactionsRepository.count).toHaveBeenCalledWith({
         where: { userId: 10 },
       });
+    });
+  });
+
+  describe('recategorizeAll', () => {
+    it('only updates transactions whose computed category actually changed', async () => {
+      transactionsRepository.find.mockResolvedValue([
+        {
+          id: 1,
+          description: 'SWIGGY ORDER',
+          type: TransactionType.DEBIT,
+          category: 'Other',
+        },
+        {
+          id: 2,
+          description: 'RANDOM VENDOR XYZ',
+          type: TransactionType.DEBIT,
+          category: 'Other',
+        },
+      ]);
+      const mockUpdate = jest.fn();
+      transactionsRepository.manager.transaction.mockImplementation(
+        async (cb: (manager: any) => Promise<void>) =>
+          cb({ update: mockUpdate }),
+      );
+
+      const result = await service.recategorizeAll(10);
+
+      expect(result).toEqual({ updated: 1, total: 2 });
+      expect(mockUpdate).toHaveBeenCalledTimes(1);
+      expect(mockUpdate).toHaveBeenCalledWith(Transaction, 1, {
+        category: 'Food & Dining',
+      });
+      expect(aiInsightsCache.invalidateForUser).toHaveBeenCalledWith(10);
+    });
+
+    it('does nothing and does not invalidate the cache when no category changes', async () => {
+      transactionsRepository.find.mockResolvedValue([
+        {
+          id: 1,
+          description: 'SWIGGY ORDER',
+          type: TransactionType.DEBIT,
+          category: 'Food & Dining',
+        },
+      ]);
+
+      const result = await service.recategorizeAll(10);
+
+      expect(result).toEqual({ updated: 0, total: 1 });
+      expect(transactionsRepository.manager.transaction).not.toHaveBeenCalled();
+      expect(aiInsightsCache.invalidateForUser).not.toHaveBeenCalled();
     });
   });
 });

@@ -8,6 +8,7 @@ import { GeminiService, ExtractedTransaction } from './gemini.service';
 import { PDFParse } from 'pdf-parse';
 import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
 import { ParserFactory } from './parsers/parser.factory';
+import { categorizeTransaction } from './categorization.util';
 
 // Minimum characters to consider a PDF as having usable text
 const MIN_TEXT_LENGTH = 50;
@@ -189,7 +190,11 @@ export class ExtractionService {
             amount: tx.amount,
             type: tx.type as TransactionType,
             description: tx.description,
-            category: tx.category,
+            // Applied uniformly regardless of source (deterministic parser
+            // or Gemini) — one consistent scheme across every bank, and it
+            // keeps working even when the Gemini API is unavailable, unlike
+            // whatever category a parser or Gemini may have guessed.
+            category: categorizeTransaction(tx.description, tx.type),
             userId: document.userId,
             accountId,
             documentId: document.id,

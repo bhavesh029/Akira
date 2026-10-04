@@ -28,6 +28,11 @@ export class TransactionsController {
     return this.transactionsService.create(req.user.id, dto);
   }
 
+  @Post('recategorize')
+  recategorizeAll(@Req() req: AuthenticatedRequest) {
+    return this.transactionsService.recategorizeAll(req.user.id);
+  }
+
   @Get()
   findAll(
     @Req() req: AuthenticatedRequest,

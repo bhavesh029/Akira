@@ -68,14 +68,16 @@ export class GeminiService {
   /**
    * Extract transactions from text content (text-based PDFs).
    */
-  async extractTransactionsFromText(text: string): Promise<ExtractedTransaction[]> {
+  async extractTransactionsFromText(
+    text: string,
+  ): Promise<ExtractedTransaction[]> {
     this.logger.log('Extracting transactions from text...');
-    
+
     const result = await this.withRetry(() =>
-      this.model.generateContent(EXTRACTION_PROMPT + text)
+      this.model.generateContent(EXTRACTION_PROMPT + text),
     );
     const response = result.response.text();
-    
+
     return this.parseResponse(response);
   }
 
@@ -92,7 +94,9 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
     fileBuffer: Buffer,
     mimeType: string,
   ): Promise<ExtractedTransaction[]> {
-    this.logger.log(`Extracting transactions from file (${mimeType}) via vision...`);
+    this.logger.log(
+      `Extracting transactions from file (${mimeType}) via vision...`,
+    );
 
     const result = await this.withRetry(() =>
       this.visionModel.generateContent([
@@ -103,7 +107,7 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
             mimeType,
           },
         },
-      ])
+      ]),
     );
 
     const response = result.response.text();
@@ -113,7 +117,10 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
   /**
    * Helper to add exponential backoff for 429 Too Many Requests errors.
    */
-  private async withRetry<T>(operation: () => Promise<T>, maxRetries = 3): Promise<T> {
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    maxRetries = 3,
+  ): Promise<T> {
     let lastError: any;
     for (let i = 0; i < maxRetries; i++) {
       try {
@@ -123,14 +130,18 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
         // Check if it's a 429 rate limit
         if (error?.status === 429 || error?.message?.includes('429')) {
           const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
-          this.logger.warn(`Rate limit hit (429). Retrying in ${Math.round(delay)}ms...`);
+          this.logger.warn(
+            `Rate limit hit (429). Retrying in ${Math.round(delay)}ms...`,
+          );
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
         // If it throws limit: 0 or isn't a 429, we still pass the error along eventually
         // But for limit: 0, it will loop if the text includes '429', so we handle that specifically:
         if (error?.message?.includes('limit: 0')) {
-          this.logger.error('Gemini Free Tier limit is ZERO in your region/account. Please enable billing on your Google API project.');
+          this.logger.error(
+            'Gemini Free Tier limit is ZERO in your region/account. Please enable billing on your Google API project.',
+          );
           throw error; // No point retrying a zero limit
         }
         throw error;
@@ -148,9 +159,9 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
     if (!match) return false;
     const [, y, m, d] = match;
-    const year = parseInt(y!, 10);
-    const month = parseInt(m!, 10);
-    const day = parseInt(d!, 10);
+    const year = parseInt(y, 10);
+    const month = parseInt(m, 10);
+    const day = parseInt(d, 10);
     if (month < 1 || month > 12 || day < 1 || day > 31) return false;
     const date = new Date(year, month - 1, day);
     return (
@@ -177,7 +188,9 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
       // Strip markdown code fences if present
       let cleaned = response.trim();
       if (cleaned.startsWith('```')) {
-        cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+        cleaned = cleaned
+          .replace(/^```(?:json)?\n?/, '')
+          .replace(/\n?```$/, '');
       }
 
       const parsed = JSON.parse(cleaned);
@@ -219,7 +232,9 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
           transaction_date: dateStr,
           amount,
           type: t.type === 'CREDIT' ? 'CREDIT' : 'DEBIT',
-          description: t.description ? String(t.description).slice(0, 255) : undefined,
+          description: t.description
+            ? String(t.description).slice(0, 255)
+            : undefined,
           category: t.category ? String(t.category).slice(0, 100) : 'Other',
         });
       }
@@ -244,24 +259,52 @@ When reading numbers from the image: double-check each digit. Common OCR errors:
    */
   async generateInsights(prompt: string): Promise<any> {
     this.logger.log('Generating AI insights...');
-    
-    const result = await this.withRetry(() =>
-      this.model.generateContent(prompt)
-    );
-    const response = result.response.text();
+
+    let response: string;
+    try {
+      const result = await this.withRetry(() =>
+        this.model.generateContent(prompt),
+      );
+      response = result.response.text();
+    } catch (err: unknown) {
+      // A failed API call here (billing/quota exhausted, outage, bad key,
+      // etc.) must never propagate as an unhandled 500 that leaves the
+      // insights panel silently blank — report it as a (non-fatal) insights
+      // failure instead, same shape as a JSON-parse failure below.
+      const status =
+        err && typeof err === 'object' && 'status' in err
+          ? (err as { status: unknown }).status
+          : undefined;
+      const message =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : String(err);
+      const isBilling =
+        status === 402 || /prepayment|billing|quota/i.test(message);
+      this.logger.error(`Gemini insights request failed: ${message}`);
+      return {
+        summary: isBilling
+          ? 'AI insights are temporarily unavailable — the Gemini API key has run out of billing credits. Add credits at https://ai.studio/projects to restore this.'
+          : 'AI insights are temporarily unavailable. Please try again shortly.',
+        subscriptions: [],
+        anomalies: [],
+      };
+    }
 
     try {
       let cleaned = response.trim();
       if (cleaned.startsWith('```')) {
-        cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+        cleaned = cleaned
+          .replace(/^```(?:json)?\n?/, '')
+          .replace(/\n?```$/, '');
       }
       return JSON.parse(cleaned);
     } catch (err) {
       this.logger.error(`Failed to parse AI insights JSON: ${err}`);
       return {
-        summary: "Failed to generate structured insights. Please try again.",
+        summary: 'Failed to generate structured insights. Please try again.',
         subscriptions: [],
-        anomalies: []
+        anomalies: [],
       };
     }
   }
@@ -309,7 +352,9 @@ If intent is clarify, set clarifyMessage to a single short question for the user
 User message:
 ${userMessage.trim()}`;
 
-    const result = await this.withRetry(() => this.model.generateContent(prompt));
+    const result = await this.withRetry(() =>
+      this.model.generateContent(prompt),
+    );
     const response = result.response.text();
     let cleaned = response.trim();
     if (cleaned.startsWith('```')) {
@@ -341,7 +386,9 @@ ${userMessage.trim()}`;
     };
   }
 
-  private normalizeFinanceChatParse(raw: Record<string, unknown>): FinanceChatParseResult {
+  private normalizeFinanceChatParse(
+    raw: Record<string, unknown>,
+  ): FinanceChatParseResult {
     const intents: FinanceChatIntent[] = [
       'sum_debits',
       'sum_credits',
@@ -364,16 +411,23 @@ ${userMessage.trim()}`;
 
     const intentRaw = raw.intent;
     const intent =
-      typeof intentRaw === 'string' && intents.includes(intentRaw as FinanceChatIntent)
+      typeof intentRaw === 'string' &&
+      intents.includes(intentRaw as FinanceChatIntent)
         ? (intentRaw as FinanceChatIntent)
         : 'unknown';
 
     const f = raw.filters;
-    const filtersObj = f && typeof f === 'object' && !Array.isArray(f) ? (f as Record<string, unknown>) : {};
+    const filtersObj =
+      f && typeof f === 'object' && !Array.isArray(f)
+        ? (f as Record<string, unknown>)
+        : {};
 
     let relative: FinanceChatRelative | null = null;
     const rel = filtersObj.relative;
-    if (typeof rel === 'string' && relatives.includes(rel as FinanceChatRelative)) {
+    if (
+      typeof rel === 'string' &&
+      relatives.includes(rel as FinanceChatRelative)
+    ) {
       relative = rel as FinanceChatRelative;
     }
 
@@ -384,16 +438,28 @@ ${userMessage.trim()}`;
     }
 
     let accountId: number | null = null;
-    if (typeof filtersObj.accountId === 'number' && Number.isFinite(filtersObj.accountId)) {
+    if (
+      typeof filtersObj.accountId === 'number' &&
+      Number.isFinite(filtersObj.accountId)
+    ) {
       accountId = Math.floor(filtersObj.accountId);
-    } else if (typeof filtersObj.accountId === 'string' && /^\d+$/.test(filtersObj.accountId)) {
+    } else if (
+      typeof filtersObj.accountId === 'string' &&
+      /^\d+$/.test(filtersObj.accountId)
+    ) {
       accountId = parseInt(filtersObj.accountId, 10);
     }
 
     let amount: number | null = null;
-    if (typeof filtersObj.amount === 'number' && Number.isFinite(filtersObj.amount)) {
+    if (
+      typeof filtersObj.amount === 'number' &&
+      Number.isFinite(filtersObj.amount)
+    ) {
       amount = filtersObj.amount;
-    } else if (typeof filtersObj.amount === 'string' && filtersObj.amount.trim()) {
+    } else if (
+      typeof filtersObj.amount === 'string' &&
+      filtersObj.amount.trim()
+    ) {
       const n = parseFloat(filtersObj.amount.replace(/,/g, ''));
       if (!Number.isNaN(n)) amount = n;
     }
@@ -403,8 +469,10 @@ ${userMessage.trim()}`;
       to: typeof filtersObj.to === 'string' ? filtersObj.to : null,
       relative,
       accountId,
-      bankName: typeof filtersObj.bankName === 'string' ? filtersObj.bankName : null,
-      category: typeof filtersObj.category === 'string' ? filtersObj.category : null,
+      bankName:
+        typeof filtersObj.bankName === 'string' ? filtersObj.bankName : null,
+      category:
+        typeof filtersObj.category === 'string' ? filtersObj.category : null,
       amount,
       compareOp,
     };

@@ -302,6 +302,30 @@ describe('GeminiService', () => {
         anomalies: [],
       });
     });
+
+    it('returns a billing-specific fallback (never an unhandled rejection) when the API call fails with a 402 billing error', async () => {
+      mockGenerateContent.mockRejectedValue(
+        Object.assign(new Error('Your prepayment credits are depleted.'), {
+          status: 402,
+        }),
+      );
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.anomalies).toEqual([]);
+      expect(result.summary).toMatch(/billing credits/i);
+    });
+
+    it('returns a generic fallback (never an unhandled rejection) when the API call fails for any other reason', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('network error'));
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.anomalies).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
+    });
   });
 
   describe('parseFinanceChatIntent / normalizeFinanceChatParse', () => {
