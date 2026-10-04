@@ -1,0 +1,134 @@
+name: CI
+
+# Runs on every PR (any target branch) and keeps main green on direct pushes.
+# Backend and frontend are independent npm projects (no root package.json),
+# so each gets its own job and runs in parallel.
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (build, lint, test, e2e)
+    runs-on: ubuntu-latest
+
+    # Mirrors docker-compose.yml's local dev database so e2e tests (which
+    # boot the real AppModule) have something to connect to.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: akira_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/akira_ci
+      JWT_SECRET: ci-test-secret
+      JWT_EXPIRATION: 1d
+      # Dummy values: nothing in the e2e suite (GET / only) makes a real
+      # Gemini or Supabase call, and neither client validates its
+      # credentials at construction time — only an actual API call would.
+      GEMINI_API_KEY: ci-dummy-key
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy-key
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history, needed to diff against the PR base for scoped lint
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install --legacy-peer-deps
+
+      - name: Enable pgvector extension
+        run: PGPASSWORD=postgrespassword psql -h localhost -U postgres -d akira_ci -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Build
+        working-directory: backend
+        run: npm run build
+
+      # Lints only files changed in this PR, not the whole repo — there is
+      # pre-existing lint debt across the codebase that a full-repo gate
+      # would fail on immediately. New/touched code must still be clean.
+      - name: Lint changed files
+        if: github.event_name == 'pull_request'
+        run: |
+          set -e
+          CHANGED=$(git diff --name-only --diff-filter=ACMR \
+            "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+            -- 'backend/src/*.ts' 'backend/src/**/*.ts' 'backend/test/*.ts' 'backend/test/**/*.ts' \
+            | sed 's|^backend/||' | sort -u)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed backend TypeScript files to lint."
+            exit 0
+          fi
+          echo "Linting changed files:"
+          echo "$CHANGED"
+          cd backend
+          echo "$CHANGED" | xargs npx eslint
+
+      - name: Unit tests + coverage thresholds
+        working-directory: backend
+        run: npm run test:cov
+
+      - name: e2e tests
+        working-directory: backend
+        run: npm run test:e2e
+
+  frontend:
+    name: Frontend (build, lint)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # Same scoped-lint philosophy as the backend job (see above) — there
+      # is pre-existing lint debt here too.
+      - name: Lint changed files
+        if: github.event_name == 'pull_request'
+        run: |
+          set -e
+          CHANGED=$(git diff --name-only --diff-filter=ACMR \
+            "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+            -- 'frontend/src/*.ts' 'frontend/src/*.tsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx' \
+            | sed 's|^frontend/||' | sort -u)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed frontend TypeScript files to lint."
+            exit 0
+          fi
+          echo "Linting changed files:"
+          echo "$CHANGED"
+          cd frontend
+          echo "$CHANGED" | xargs npx eslint
