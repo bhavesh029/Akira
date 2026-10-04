@@ -7,40 +7,17 @@ import { AxisParser } from './axis.parser';
 import { BankParser } from './bank-parser.interface';
 
 /**
- * ICICI/HSBC/UCO/PNB/Axis are stub parsers today (see docs/BUGS.md #1 and
+ * PNB is still a stub parser (see docs/BUGS.md #1 and
  * docs/phases/phase-2-bank-parsers.md) — `parse()` always returns `[]`
- * regardless of input. These tests document and pin that current behavior
- * (so a future accidental change is caught), not "correct" parsing.
+ * regardless of input, pending a real sample statement. ICICI, HSBC, UCO and
+ * Axis were hardened against real sample statements — see their dedicated
+ * describe blocks below.
  */
 describe.each([
-  {
-    Parser: ICICIParser,
-    name: 'ICICI Bank',
-    matches: ['icici bank statement'],
-    nonMatches: ['hdfc bank'],
-  },
-  {
-    Parser: HSBCParser,
-    name: 'HSBC Bank',
-    matches: ['hsbc bank statement', 'plain hsbc mention'],
-    nonMatches: ['icici bank'],
-  },
-  {
-    Parser: UCOParser,
-    name: 'UCO Bank',
-    matches: ['uco bank statement'],
-    nonMatches: ['icici bank'],
-  },
   {
     Parser: PNBParser,
     name: 'Punjab National Bank (PNB)',
     matches: ['punjab national bank statement', 'pnb account summary'],
-    nonMatches: ['icici bank'],
-  },
-  {
-    Parser: AxisParser,
-    name: 'Axis Bank',
-    matches: ['axis bank statement'],
     nonMatches: ['icici bank'],
   },
 ])('$Parser.name (stub parser)', ({ Parser, name, matches, nonMatches }) => {
@@ -149,5 +126,337 @@ describe('HDFCParser', () => {
     expect(result).toHaveLength(2);
     expect(result[0].type).toBe('DEBIT');
     expect(result[1].type).toBe('CREDIT');
+  });
+});
+
+/**
+ * ICICI's savings-account layout wraps narration across multiple lines and
+ * only the final line carries two bare decimal numbers (amount + running
+ * balance, no column label survives text extraction) — see
+ * balance-delta.util.ts. Shapes below mirror a real statement's structure
+ * (verified against an actual sample — see docs/BUGS.md #1).
+ */
+describe('ICICIParser', () => {
+  const parser = new ICICIParser();
+
+  it('returns its bank name', () => {
+    expect(parser.getBankName()).toBe('ICICI Bank');
+  });
+
+  it('canParse matches "icici bank" case-insensitively', () => {
+    expect(parser.canParse('ICICI Bank Statement')).toBe(true);
+    expect(parser.canParse('hdfc bank')).toBe(false);
+  });
+
+  const statementText = [
+    'MHW1/181D/1-1/WBF-M/03-12',
+    '669801700903??TEST1234 000001',
+    'MR.TEST USER',
+    'TEST ADDRESS LINE',
+    'Savings A/c 123456789012 10,000.00 0.00 10,000.00 Registered',
+    'TOTAL 10,000.00 0.00 10,000.00',
+    'Statement of Transactions in Savings Account Number: 123456789012',
+    'DATE MODE** PARTICULARS DEPOSITS WITHDRAWALS BALANCE',
+    '01-01-2026 B/F 5,000.00',
+    '02-01-2026',
+    'UPI/MERCHANT A/merchanta@bank/payment/AXIS',
+    'BANK/123456789/some reference',
+    '1,000.00 4,000.00',
+    '03-01-2026 SALARY CREDIT FROM EMPLOYER  10,000.00 14,000.00',
+    'Page 1 of2',
+    '-- 1 of 2 --',
+    'MR.TEST USER',
+    'DATE MODE** PARTICULARS DEPOSITS WITHDRAWALS BALANCE',
+    '04-01-2026 UNRECONCILABLE NOISE LINE 999.00 999.00',
+    '05-01-2026 ATM WITHDRAWAL  2,000.00 12,000.00',
+  ].join('\n');
+
+  it('ignores every line before B/F (header/account-summary boilerplate)', () => {
+    const result = parser.parse(statementText);
+    expect(result[0].description).not.toContain('MHW1');
+    expect(result[0].description).not.toContain('TEST ADDRESS');
+  });
+
+  it('joins a multi-line wrapped narration into one description', () => {
+    const result = parser.parse(statementText);
+    expect(result[0]).toEqual({
+      transaction_date: '2026-01-02',
+      description:
+        'UPI/MERCHANT A/merchanta@bank/payment/AXIS BANK/123456789/some reference',
+      amount: 1000,
+      type: 'DEBIT',
+      category: 'Other',
+    });
+  });
+
+  it('parses a single-line transaction (date, narration and amounts all on one line)', () => {
+    const result = parser.parse(statementText);
+    expect(result[1]).toEqual({
+      transaction_date: '2026-01-03',
+      description: 'SALARY CREDIT FROM EMPLOYER',
+      amount: 10000,
+      type: 'CREDIT',
+      category: 'Other',
+    });
+  });
+
+  it('skips a line whose two trailing numbers do not reconcile against the running balance, without corrupting later lines', () => {
+    const result = parser.parse(statementText);
+    expect(result).toHaveLength(3);
+    expect(result.some((t) => t.description?.includes('UNRECONCILABLE'))).toBe(
+      false,
+    );
+    // The next valid line must still resolve correctly against the last
+    // known-good balance (14,000), proving the skip didn't desync tracking.
+    expect(result[2]).toEqual({
+      transaction_date: '2026-01-05',
+      description: 'ATM WITHDRAWAL',
+      amount: 2000,
+      type: 'DEBIT',
+      category: 'Other',
+    });
+  });
+
+  it('returns an empty array when there is no B/F opening-balance line to anchor against', () => {
+    expect(
+      parser.parse('some unrelated icici bank text with no B/F line'),
+    ).toEqual([]);
+  });
+
+  it('skips a transaction-shaped line encountered before any B/F opening-balance line has been seen', () => {
+    const result = parser.parse(
+      '02-01-2026 SOME DESC BEFORE OPENING BALANCE 100.00 200.00\n01-01-2026 B/F 5,000.00',
+    );
+    expect(result).toEqual([]);
+  });
+});
+
+/**
+ * UCO's savings-account layout has the same lost-column problem as ICICI's,
+ * but each transaction is a single line and the opening balance is recovered
+ * from the (jumbled) "Transaction Summary" footer instead of a "B/F" line —
+ * see balance-delta.util.ts and docs/BUGS.md #1.
+ */
+describe('UCOParser', () => {
+  const parser = new UCOParser();
+
+  it('returns its bank name', () => {
+    expect(parser.getBankName()).toBe('UCO Bank');
+  });
+
+  it('canParse matches "uco bank" case-insensitively', () => {
+    expect(parser.canParse('UCO Bank Statement')).toBe(true);
+    expect(parser.canParse('icici bank')).toBe(false);
+  });
+
+  it('resolves amount/type against the running balance and reconciles exactly to the closing balance', () => {
+    const statementText = [
+      'Transaction Summary',
+      '500.00',
+      'Closing Balance 1,300.00',
+      'Opening Balance',
+      '17-01-2026 MPAY/UPI/TRTR/111111111111/TESTUSER/ICIC/XXX 100.00 400.00',
+      '18-01-2026 Int.Pd:01-01-2026 to 17-01-2026 50.00 450.00',
+      '19-01-2026 MPAY/TRTR/222222222222/transfer in/MBS 1,000.00 1,450.00',
+      '20-01-2026 MPAY/UPI/TRTR/333333333333/transfer out/ICIC/XXX 150.00 1,300.00',
+    ].join('\n');
+
+    const result = parser.parse(statementText);
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        transaction_date: '2026-01-17',
+        amount: 100,
+        type: 'DEBIT',
+      }),
+      expect.objectContaining({
+        transaction_date: '2026-01-18',
+        amount: 50,
+        type: 'CREDIT',
+      }),
+      expect.objectContaining({
+        transaction_date: '2026-01-19',
+        amount: 1000,
+        type: 'CREDIT',
+      }),
+      expect.objectContaining({
+        transaction_date: '2026-01-20',
+        amount: 150,
+        type: 'DEBIT',
+      }),
+    ]);
+
+    const finalBalance =
+      500 +
+      result.reduce(
+        (bal, t) => (t.type === 'CREDIT' ? bal + t.amount : bal - t.amount),
+        0,
+      );
+    expect(finalBalance).toBeCloseTo(1300, 2);
+  });
+
+  it('returns an empty array when the opening balance cannot be found', () => {
+    expect(
+      parser.parse('uco bank statement with no transaction summary footer'),
+    ).toEqual([]);
+  });
+
+  it('skips blank lines and a line whose two numbers do not reconcile, without corrupting the running balance', () => {
+    const statementText = [
+      'Transaction Summary',
+      '500.00',
+      '',
+      '17-01-2026 MPAY/UPI/TRTR/111111111111/TESTUSER/ICIC/XXX 100.00 400.00',
+      '18-01-2026 UNRECONCILABLE LINE 999.00 1.00',
+      '19-01-2026 MPAY/TRTR/222222222222/transfer in/MBS 1,000.00 1,400.00',
+    ].join('\n');
+
+    const result = parser.parse(statementText);
+
+    expect(result).toEqual([
+      expect.objectContaining({ transaction_date: '2026-01-17', amount: 100 }),
+      expect.objectContaining({ transaction_date: '2026-01-19', amount: 1000 }),
+    ]);
+  });
+});
+
+/**
+ * HSBC's credit-card layout is tab-separated with a trailing "CR" marker for
+ * credits/refunds (absent = a purchase/debit) and no year on each line's
+ * date — the year is recovered from the statement period printed elsewhere
+ * in the document. Verified against a real sample — see docs/BUGS.md #1.
+ */
+describe('HSBCParser', () => {
+  const parser = new HSBCParser();
+
+  it('returns its bank name', () => {
+    expect(parser.getBankName()).toBe('HSBC Bank');
+  });
+
+  it('canParse matches "hsbc" case-insensitively', () => {
+    expect(parser.canParse('HSBC Bank Statement')).toBe(true);
+    expect(parser.canParse('plain hsbc mention')).toBe(true);
+    expect(parser.canParse('icici bank')).toBe(false);
+  });
+
+  it('parses a debit (no CR marker) and a credit (CR marker), recovering the year from the statement period across a year boundary', () => {
+    const statementText = [
+      '20 DEC 2025 To 19 JAN 2026',
+      '25DEC\tTEST MERCHANT ONE\tCITY\tIN\t500.00',
+      '02JAN\tPAYMENT RECEIVED REF123\t1,200.00\tCR',
+    ].join('\n');
+
+    const result = parser.parse(statementText);
+
+    expect(result).toEqual([
+      {
+        transaction_date: '2025-12-25',
+        description: 'TEST MERCHANT ONE CITY IN',
+        amount: 500,
+        type: 'DEBIT',
+        category: 'Other',
+      },
+      {
+        transaction_date: '2026-01-02',
+        description: 'PAYMENT RECEIVED REF123',
+        amount: 1200,
+        type: 'CREDIT',
+        category: 'Other',
+      },
+    ]);
+  });
+
+  it('returns an empty array when no statement-period line is present to recover the year from', () => {
+    expect(parser.parse('05SEP\tSOME MERCHANT\t100.00\nhsbc bank')).toEqual([]);
+  });
+
+  it('ignores blank lines, lines with no date field, lines with an invalid month, and lines with a malformed amount', () => {
+    const statementText = [
+      '20 DEC 2025 To 19 JAN 2026',
+      '',
+      'TOTAL\tSOME SUMMARY ROW\t1,000.00',
+      '05XXX\tINVALID MONTH ROW\t100.00',
+      '25DEC\tBAD AMOUNT ROW\tnot-a-number',
+      '26DEC\tGOOD ROW\t250.00',
+    ].join('\n');
+
+    const result = parser.parse(statementText);
+
+    expect(result).toEqual([
+      {
+        transaction_date: '2025-12-26',
+        description: 'GOOD ROW',
+        amount: 250,
+        type: 'DEBIT',
+        category: 'Other',
+      },
+    ]);
+  });
+
+  it('reports an undefined description for a credit row with no narration text between the date and the amount', () => {
+    const statementText = [
+      '20 DEC 2025 To 19 JAN 2026',
+      '25DEC\t1,200.00\tCR',
+    ].join('\n');
+
+    const result = parser.parse(statementText);
+    expect(result[0].description).toBeUndefined();
+  });
+});
+
+/**
+ * Axis's credit-card layout is single-line-per-transaction with a trailing
+ * "Dr"/"Cr" marker, anchored to start only after the real "Account Summary"
+ * table header — the payment-summary block above it contains a date-range
+ * row that would otherwise false-positive-match. Verified against a real
+ * sample — see docs/BUGS.md #1.
+ */
+describe('AxisParser', () => {
+  const parser = new AxisParser();
+
+  it('returns its bank name', () => {
+    expect(parser.getBankName()).toBe('Axis Bank');
+  });
+
+  it('canParse matches "axis bank" case-insensitively', () => {
+    expect(parser.canParse('Axis Bank Statement')).toBe(true);
+    expect(parser.canParse('icici bank')).toBe(false);
+  });
+
+  it('ignores the payment-summary date-range row above Account Summary, and parses real transaction rows', () => {
+    const statementText = [
+      'PAYMENT SUMMARY',
+      'Total Payment Due Minimum Payment Due Statement Period Payment Due Date Statement Generation Date',
+      '01/01/2026 - 31/01/2026\t15/02/2026\t31/01/2026\t5,000.00 Dr\t1,000.00 Dr',
+      'Account Summary',
+      'DATE TRANSACTION DETAILS MERCHANT CATEGORY AMOUNT (Rs.)',
+      '05/01/2026 TEST MERCHANT ONE CITY 1,500.00 Dr',
+      '10/01/2026 PAYMENT RECEIVED REF123 3,500.00 Cr',
+    ].join('\n');
+
+    const result = parser.parse(statementText);
+
+    expect(result).toEqual([
+      {
+        transaction_date: '2026-01-05',
+        description: 'TEST MERCHANT ONE CITY',
+        amount: 1500,
+        type: 'DEBIT',
+        category: 'Other',
+      },
+      {
+        transaction_date: '2026-01-10',
+        description: 'PAYMENT RECEIVED REF123',
+        amount: 3500,
+        type: 'CREDIT',
+        category: 'Other',
+      },
+    ]);
+  });
+
+  it('returns an empty array for text with no matching transaction lines', () => {
+    expect(parser.parse('axis bank statement\nno transactions here')).toEqual(
+      [],
+    );
   });
 });
