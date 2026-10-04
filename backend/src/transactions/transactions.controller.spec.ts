@@ -148,3 +148,46 @@ describe('TransactionsController query validation (Bug #8)', () => {
     expect(filtersArg.search).toBe('coffee');
   });
 });
+
+describe('POST /transactions/recategorize', () => {
+  let app: INestApplication;
+  let transactionsService: { recategorizeAll: jest.Mock };
+
+  beforeEach(async () => {
+    transactionsService = {
+      recategorizeAll: jest.fn().mockResolvedValue({ updated: 3, total: 10 }),
+    };
+
+    const moduleRef: TestingModule = await Test.createTestingModule({
+      controllers: [TransactionsController],
+      providers: [
+        { provide: TransactionsService, useValue: transactionsService },
+      ],
+    })
+      .overrideGuard(AuthGuard('jwt'))
+      .useValue({
+        canActivate: (context: ExecutionContext) => {
+          const req = context.switchToHttp().getRequest();
+          req.user = { id: 10 };
+          return true;
+        },
+      })
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('re-runs categorization scoped to the authenticated user and returns the update count', async () => {
+    const res = await request(app.getHttpServer()).post(
+      '/transactions/recategorize',
+    );
+    expect(res.status).toBe(201);
+    expect(res.body).toEqual({ updated: 3, total: 10 });
+    expect(transactionsService.recategorizeAll).toHaveBeenCalledWith(10);
+  });
+});

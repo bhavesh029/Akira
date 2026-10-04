@@ -15,7 +15,7 @@ deletion — see `docs/phases/phase-0-foundation.md`.
 
 | # | Bug | Effort | Status |
 |---|---|---|---|
-| 1 | 5 of 6 bank parsers (ICICI/HSBC/UCO/PNB/Axis) are stubs returning `[]` — accuracy for those banks depends entirely on Gemini, unverified against real statements | High (blocked — needs real sample statements, see below) | ⬜ |
+| 1 | 5 of 6 bank parsers (ICICI/HSBC/UCO/PNB/Axis) are stubs returning `[]` — accuracy for those banks depends entirely on Gemini, unverified against real statements | High (blocked — needs real sample statements, see below) | 🚧 Partially fixed — ICICI, HSBC, UCO, and Axis now have real parsers, each verified against a real (redacted) sample statement: ICICI/UCO (savings accounts) resolve amount vs. running balance via `balance-delta.util.ts` since the extracted text loses the debit/credit column, and every line is checked to actually reconcile against the running balance before being reported (342/344 real transaction-shaped lines in the ICICI sample, UCO's totals match the statement's own printed deposit/withdrawal/closing-balance figures exactly); HSBC and Axis (credit-card statements, not savings accounts) parse their tab/Dr-Cr-marker formats directly. **PNB remains a stub** — no sample provided yet. If an HSBC/Axis *savings* statement is ever uploaded (vs. the credit-card format the sample provided), the parser is expected to match zero lines and fall back to Gemini automatically, not silently misparse. |
 | 2 | No DB transaction wrapping in `extraction.service.ts` — saving transactions and updating `Document.status` are separate non-atomic writes; a crash mid-extraction can leave transactions saved but the document stuck on `PROCESSING`, or (if the status update fails after transactions saved) the document marked `FAILED` while transactions already exist | Medium | ✅ Fixed in this branch |
 | 3 | CSV upload is accepted (`documents.controller.ts` allows `text/csv`) but `extraction.service.ts` has no CSV-specific path — it was sent to Gemini Vision as image `inlineData`, which is not a supported use of that API | Low | ✅ Fixed in this branch |
 
@@ -38,7 +38,7 @@ deletion — see `docs/phases/phase-0-foundation.md`.
 | 11 | `Document.accountId == null` silently drops all extracted transactions with only a log line, no user-facing error | Low (ties into #13) | ⬜ |
 | 12 | No `Document.error_message` — a `FAILED` document gives no reason | Low (planned in Phase 1's migration) | ⬜ |
 | 13 | Wrong PDF password isn't distinguished from any other extraction failure | Low | ⬜ |
-| 14 | `category` is a free-form nullable string with no canonicalization | Medium | ⬜ |
+| 14 | `category` is a free-form nullable string with no canonicalization | Medium | 🚧 Partially fixed — deterministic keyword-based categorization (`backend/src/documents/categorization.util.ts`) now runs uniformly at extraction time regardless of source (any bank parser or Gemini), covering ~20 real-world categories plus a "Transfer" fallback for person-to-person UPI payments (sending/receiving money with a friend, street vendors) that previously landed in "Other". A `POST /transactions/recategorize` endpoint re-runs it over already-saved transactions. Still not a canonical/enforced category list at the DB or DTO level — `category` is still a free-form string column, and an unrecognized vendor can still land in "Other"; manual correction via `PATCH /transactions/:id` remains the fallback for those. |
 | 15 | `financeChat`'s category filter uses `ILIKE '%term%'` substring matching, can match unrelated categories | Low | ⬜ |
 | 16 | `from`/`to` date filters on `GET /transactions`: supplying only one is silently ignored entirely | Low | ⬜ |
 | 17 | No `documentId` filter on the transactions API despite the field existing on the entity | Low | ⬜ |
@@ -59,6 +59,7 @@ deletion — see `docs/phases/phase-0-foundation.md`.
 | 26 | Frontend has no error boundary | Low | ⬜ |
 | 27 | Chat widget has no persistence — refresh loses the conversation | Low | ⬜ |
 | 28 | `backend/statement.pdf` still sits untracked in the working tree | Low | ⬜ |
+| 30 | *(found while debugging a live "AI insights blank" report)* `GeminiService.generateInsights()` had no error handling around the actual `generateContent()` call — only around JSON-parsing its response. A failed API call (billing/quota exhausted, outage, bad key) propagated as an unhandled rejection all the way to an opaque 500, leaving the dashboard's insights panel silently blank with no indication why. | Low | ✅ Fixed — wrapped in a try/catch that returns a graceful, informative `summary` message instead (distinguishing a billing/quota failure from any other failure), matching the same non-throwing shape already used for JSON-parse failures. |
 
 ---
 

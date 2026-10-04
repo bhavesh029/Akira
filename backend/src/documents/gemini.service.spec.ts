@@ -264,6 +264,12 @@ describe('GeminiService', () => {
       const result = await extract(raw);
       expect(result).toEqual([validTx]);
     });
+
+    it('rejects a non-object array element instead of throwing', async () => {
+      const raw = JSON.stringify(['just a string', validTx]);
+      const result = await extract(raw);
+      expect(result).toEqual([validTx]);
+    });
   });
 
   describe('generateInsights', () => {
@@ -301,6 +307,48 @@ describe('GeminiService', () => {
         subscriptions: [],
         anomalies: [],
       });
+    });
+
+    it('returns a billing-specific fallback (never an unhandled rejection) when the API call fails with a 402 billing error', async () => {
+      mockGenerateContent.mockRejectedValue(
+        Object.assign(new Error('Your prepayment credits are depleted.'), {
+          status: 402,
+        }),
+      );
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.anomalies).toEqual([]);
+      expect(result.summary).toMatch(/billing credits/i);
+    });
+
+    it('returns a generic fallback (never an unhandled rejection) when the API call fails for any other reason', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('network error'));
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.anomalies).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
+    });
+
+    it('handles a thrown object with no usable message property', async () => {
+      mockGenerateContent.mockRejectedValue({ code: 'ECONNRESET' });
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
+    });
+
+    it('handles a thrown non-object value (e.g. a plain string)', async () => {
+      mockGenerateContent.mockRejectedValue('a plain string rejection');
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
     });
   });
 

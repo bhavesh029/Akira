@@ -10,7 +10,7 @@ it. It's a build log, not a test script — for exact manual test steps see
 |---|---|---|
 | 0 | [Foundation & correctness fixes](./phase-0-foundation.md) | ✅ Done |
 | 1 | [Reconciliation + mandatory review](./phase-1-reconciliation-review.md) | ⬜ Not started |
-| 2 | [Harden the 6 bank parsers](./phase-2-bank-parsers.md) | ⬜ Deferred (blocked on sample data) |
+| 2 | [Harden the 6 bank parsers](./phase-2-bank-parsers.md) | 🚧 Partially done (ICICI/HSBC/UCO/Axis hardened; PNB blocked, HDFC unverified) |
 | 3 | [RAG (grounded chat + semantic search)](./phase-3-rag.md) | ⬜ Not started |
 | 4 | [Budgets & spending limits](./phase-4-budgets.md) | ⬜ Not started |
 | 5 | [Recurring bills / subscriptions](./phase-5-recurring-bills.md) | ⬜ Not started |

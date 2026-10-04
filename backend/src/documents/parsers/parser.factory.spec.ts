@@ -21,7 +21,7 @@ describe('ParserFactory', () => {
     ]);
   });
 
-  it('routes ICICI statement text to the (stub) ICICI parser, returning []', () => {
+  it('routes ICICI statement text to the ICICI parser, which returns [] without a B/F opening-balance line to anchor against', () => {
     expect(
       factory.parseText('ICICI Bank Statement\nsome transaction lines here'),
     ).toEqual([]);
