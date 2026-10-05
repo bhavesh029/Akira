@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Pre-push hook: replicates .github/workflows/ci.yml locally so a CI failure
+# is caught here instead of after the push. Mirrors the backend job (build,
+# scoped lint, test:cov, test:e2e) and the frontend job (build, scoped lint).
+#
+# Enabled via `git config core.hooksPath .githooks` — set automatically by
+# `npm install` at the repo root (see its postinstall script), or run that
+# command yourself to enable it in an existing checkout.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+BASE_BRANCH="origin/main"
+
+echo "==> Pre-push checks (mirrors CI backend + frontend jobs)"
+
+git fetch origin main --quiet 2>/dev/null || true
+BASE_SHA="$(git merge-base HEAD "$BASE_BRANCH" 2>/dev/null || true)"
+if [ -z "$BASE_SHA" ]; then
+  echo "Could not find a merge-base with $BASE_BRANCH; linting the last commit only."
+  BASE_SHA="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+fi
+HEAD_SHA="$(git rev-parse HEAD)"
+
+# Lints only files changed since $BASE_BRANCH, same scoped-lint philosophy as
+# CI: there is pre-existing lint debt across the repo that a full-tree lint
+# would fail on immediately, so only touched files are checked. No --fix —
+# see CLAUDE.md's unscoped-lint warning.
+lint_changed() {
+  local workdir="$1"
+  shift
+  local changed
+  changed=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- "$@" \
+    | sed "s|^${workdir}/||" | sort -u)
+  if [ -z "$changed" ]; then
+    echo "No changed files under $workdir to lint."
+    return 0
+  fi
+  echo "Linting changed files in $workdir:"
+  echo "$changed"
+  (cd "$workdir" && echo "$changed" | xargs npx eslint)
+}
+
+echo ""
+echo "--- Backend ---"
+(cd backend && npm run build)
+lint_changed backend 'backend/src/*.ts' 'backend/src/**/*.ts' 'backend/test/*.ts' 'backend/test/**/*.ts'
+(cd backend && npm run test:cov)
+
+if command -v nc >/dev/null 2>&1 && nc -z -w1 127.0.0.1 5432 2>/dev/null; then
+  (cd backend && npm run test:e2e)
+else
+  echo "WARNING: no local Postgres reachable on localhost:5432 — skipping e2e tests."
+  echo "Run 'docker-compose up -d' to start it locally; CI always runs e2e regardless."
+fi
+
+echo ""
+echo "--- Frontend ---"
+(cd frontend && npm run build)
+lint_changed frontend 'frontend/src/*.ts' 'frontend/src/*.tsx' 'frontend/src/**/*.ts' 'frontend/src/**/*.tsx'
+
+echo ""
+echo "==> All pre-push checks passed."

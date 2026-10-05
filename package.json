@@ -5,7 +5,8 @@
   "description": "Root dev-convenience scripts for the Akira monorepo. backend/ and frontend/ remain independent npm projects — see CLAUDE.md.",
   "scripts": {
     "install:all": "npm install --prefix backend --legacy-peer-deps && npm install --prefix frontend",
-    "dev": "concurrently -n backend,frontend -c blue,green \"npm run start:dev --prefix backend\" \"npm run dev --prefix frontend\""
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run start:dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "postinstall": "git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
