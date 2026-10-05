@@ -10,6 +10,7 @@ import { categorizeTransaction } from '../documents/categorization.util';
 
 export interface TransactionFilters {
   accountId?: number;
+  documentId?: number;
   type?: TransactionType;
   category?: string;
   from?: string; // date string
@@ -48,9 +49,14 @@ export class TransactionsService {
     // Validate account ownership
     await this.accountsService.findOne(dto.accountId, userId);
 
+    // Manually-entered transactions carry none of the extraction uncertainty
+    // the review gate exists for, so they're confirmed immediately — unlike
+    // extracted transactions, which always land reviewed: false (see
+    // extraction.service.ts and docs/phases/phase-1-reconciliation-review.md).
     const transaction = this.transactionsRepository.create({
       ...dto,
       userId,
+      reviewed: true,
     });
     const saved = await this.transactionsRepository.save(transaction);
     this.aiInsightsCache.invalidateForUser(userId);
@@ -76,6 +82,11 @@ export class TransactionsService {
     if (filters?.accountId) {
       qb.andWhere('tx.accountId = :accountId', {
         accountId: filters.accountId,
+      });
+    }
+    if (filters?.documentId) {
+      qb.andWhere('tx.documentId = :documentId', {
+        documentId: filters.documentId,
       });
     }
     if (filters?.type) {

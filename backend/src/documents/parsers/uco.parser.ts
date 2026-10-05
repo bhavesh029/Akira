@@ -17,7 +17,15 @@ export class UCOParser implements BankParser {
   }
 
   canParse(text: string): boolean {
-    return text.toLowerCase().includes('uco bank');
+    // "UCO Bank" as printed text is often part of a letterhead/logo image
+    // that doesn't survive PDF text extraction — a real statement's
+    // extracted text can be entirely missing the literal bank name (see
+    // docs/BUGS.md). UCO's IFSC prefix "UCBA" is unique to UCO Bank (RBI
+    // bank-code allocation) and always survives extraction as plain text
+    // inside the account's IFSC code (e.g. "UCBA0000573"), so it's checked
+    // as a second, independent signal.
+    const lower = text.toLowerCase();
+    return lower.includes('uco bank') || /\bucba0\d{6}\b/.test(lower);
   }
 
   /**

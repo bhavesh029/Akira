@@ -90,6 +90,11 @@ export class DocumentsController {
     return this.documentsService.update(id, req.user.id, dto);
   }
 
+  @Patch(':id/confirm-review')
+  confirmReview(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.documentsService.confirmReview(id, req.user.id);
+  }
+
   @Delete(':id')
   remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     return this.documentsService.remove(id, req.user.id);

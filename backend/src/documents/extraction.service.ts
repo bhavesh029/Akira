@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { Document, DocumentStatus } from '../entities/document.entity';
+import {
+  Document,
+  DocumentStatus,
+  ReconciliationStatus,
+} from '../entities/document.entity';
 import { Transaction, TransactionType } from '../entities/transaction.entity';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { GeminiService, ExtractedTransaction } from './gemini.service';
@@ -9,6 +13,8 @@ import { PDFParse } from 'pdf-parse';
 import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
 import { ParserFactory } from './parsers/parser.factory';
 import { categorizeTransaction } from './categorization.util';
+import { DocumentChunksService } from './document-chunks.service';
+import { chunkText } from './chunking.util';
 
 // Minimum characters to consider a PDF as having usable text
 const MIN_TEXT_LENGTH = 50;
@@ -44,6 +50,7 @@ export class ExtractionService {
     private readonly geminiService: GeminiService,
     private readonly aiInsightsCache: AiInsightsCacheService,
     private readonly parserFactory: ParserFactory,
+    private readonly documentChunksService: DocumentChunksService,
   ) {}
 
   /**
@@ -67,6 +74,11 @@ export class ExtractionService {
 
       // 3. Extract transactions using appropriate method
       let extracted: ExtractedTransaction[] = [];
+      // Raw text, when available, doubles as input for the reconciliation
+      // balance check and Phase 3's chunk/embedding indexing below —
+      // scanned PDFs/images (vision path) have no text, so those stay
+      // NOT_APPLICABLE for reconciliation and unindexed for RAG.
+      let rawDocumentText: string | null = null;
 
       if (mimeType === 'application/pdf') {
         // Try text extraction first for text-based PDFs
@@ -80,6 +92,7 @@ export class ExtractionService {
         }
 
         if (text.length >= MIN_TEXT_LENGTH) {
+          rawDocumentText = text;
           this.logger.log(
             `PDF has ${text.length} chars of text, using deterministic parser factory`,
           );
@@ -113,6 +126,7 @@ export class ExtractionService {
         // CSV is plain text, not an image — must go through text extraction,
         // never the vision/inlineData path (which expects an actual image).
         const csvText = fileBuffer.toString('utf-8').trim();
+        rawDocumentText = csvText;
         this.logger.log(
           `CSV file with ${csvText.length} chars, using text extraction`,
         );
@@ -129,6 +143,23 @@ export class ExtractionService {
       this.logger.log(
         `Extracted ${extracted.length} transactions from document ${document.id}`,
       );
+
+      // 3b. Reconciliation: find the statement's own opening/closing balance
+      // (when present) and check it against this document's extracted sum.
+      // This informs — but never replaces — mandatory per-transaction review.
+      const balances = rawDocumentText
+        ? await this.geminiService.extractDocumentBalances(rawDocumentText)
+        : { opening_balance: null, closing_balance: null };
+      const reconciliation = this.computeReconciliation(
+        balances.opening_balance,
+        balances.closing_balance,
+        extracted,
+      );
+      const documentUpdate = {
+        status: DocumentStatus.COMPLETED,
+        raw_text: rawDocumentText,
+        ...reconciliation,
+      };
 
       // 4. Deduplicate: filter out transactions that already exist for this account
       let toSave = extracted;
@@ -209,9 +240,7 @@ export class ExtractionService {
         await this.transactionsRepository.manager.transaction(
           async (manager) => {
             await manager.save(transactions);
-            await manager.update(Document, document.id, {
-              status: DocumentStatus.COMPLETED,
-            });
+            await manager.update(Document, document.id, documentUpdate);
           },
         );
 
@@ -221,9 +250,14 @@ export class ExtractionService {
         );
       } else {
         // Nothing to save — a single write, no atomicity concern.
-        await this.documentsRepository.update(document.id, {
-          status: DocumentStatus.COMPLETED,
-        });
+        await this.documentsRepository.update(document.id, documentUpdate);
+      }
+
+      // 6. Index chunks for Phase 3 RAG (grounded chat/semantic search). Own
+      // try/catch inside indexDocumentChunks — an embedding failure must
+      // never flip an otherwise-successful document to FAILED.
+      if (rawDocumentText) {
+        await this.indexDocumentChunks(document.id, rawDocumentText);
       }
 
       this.logger.log(
@@ -237,7 +271,94 @@ export class ExtractionService {
       // Mark as FAILED
       await this.documentsRepository.update(document.id, {
         status: DocumentStatus.FAILED,
+        error_message: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  /** Absolute tolerance (₹5) — bank ledgers are exact, so this only absorbs paise-level rounding. */
+  private static readonly RECONCILIATION_TOLERANCE = 5;
+
+  /**
+   * Compares this document's own extracted transactions against its stated
+   * opening/closing balance. NOT_APPLICABLE (rather than a false MISMATCH)
+   * whenever either balance is missing — the per-row-review fallback already
+   * covers that case safely, so there's no need to guess.
+   */
+  private computeReconciliation(
+    openingBalance: number | null,
+    closingBalance: number | null,
+    transactions: ExtractedTransaction[],
+  ): {
+    opening_balance: number | null;
+    closing_balance: number | null;
+    reconciliation_status: ReconciliationStatus;
+    reconciled_delta: number | null;
+  } {
+    if (openingBalance == null || closingBalance == null) {
+      return {
+        opening_balance: openingBalance,
+        closing_balance: closingBalance,
+        reconciliation_status: ReconciliationStatus.NOT_APPLICABLE,
+        reconciled_delta: null,
+      };
+    }
+
+    const credits = transactions
+      .filter((t) => t.type === 'CREDIT')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const debits = transactions
+      .filter((t) => t.type === 'DEBIT')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const computedClosing = openingBalance + credits - debits;
+    const delta = Math.round((computedClosing - closingBalance) * 100) / 100;
+
+    return {
+      opening_balance: openingBalance,
+      closing_balance: closingBalance,
+      reconciliation_status:
+        Math.abs(delta) <= ExtractionService.RECONCILIATION_TOLERANCE
+          ? ReconciliationStatus.MATCHED
+          : ReconciliationStatus.MISMATCH,
+      reconciled_delta: delta,
+    };
+  }
+
+  /**
+   * Chunks and embeds a document's raw text for Phase 3's grounded chat/
+   * semantic search. Never throws — an indexing failure (chunking bug,
+   * Gemini embedding error, DB write failure) must not undo an otherwise-
+   * successful extraction; it just means this document won't show up in
+   * RAG results until re-processed.
+   */
+  private async indexDocumentChunks(
+    documentId: number,
+    text: string,
+  ): Promise<void> {
+    try {
+      const chunks = chunkText(text);
+      if (chunks.length === 0) return;
+
+      const embeddings = await this.geminiService.embedBatch(
+        chunks.map((c) => c.content),
+      );
+      const toInsert = chunks
+        .map((chunk, i) => ({
+          content: chunk.content,
+          embedding: embeddings[i],
+        }))
+        .filter((c) => c.embedding && c.embedding.length > 0);
+
+      if (toInsert.length === 0) return;
+
+      await this.documentChunksService.insertChunks(documentId, toInsert);
+      this.logger.log(
+        `Indexed ${toInsert.length} chunk(s) for document ${documentId}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to index chunks for document ${documentId}: ${err}`,
+      );
     }
   }
 

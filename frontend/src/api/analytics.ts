@@ -31,8 +31,16 @@ export interface AiInsights {
   anomalies: string[];
 }
 
+export interface FinanceChatSource {
+  documentId: number;
+  documentTitle: string;
+  snippet: string;
+}
+
 export interface FinanceChatResponse {
   answer: string;
+  /** Present only for Phase 3's RAG-grounded answers (raw-statement-text Q&A). */
+  sources?: FinanceChatSource[];
 }
 
 export const analyticsApi = {

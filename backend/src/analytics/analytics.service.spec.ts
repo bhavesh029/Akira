@@ -26,6 +26,7 @@ import { Account } from '../entities/account.entity';
 import { GeminiService } from '../documents/gemini.service';
 import { AiInsightsCacheService } from './ai-insights-cache.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { RagService } from './rag.service';
 import type {
   FinanceChatFilters,
   FinanceChatParseResult,
@@ -69,8 +70,12 @@ function emptyFilters(
     accountId: null,
     bankName: null,
     category: null,
-    amount: null,
-    compareOp: null,
+    amountMin: null,
+    amountMax: null,
+    description: null,
+    type: null,
+    sortBy: null,
+    sortDir: null,
     ...overrides,
   };
 }
@@ -84,6 +89,7 @@ describe('AnalyticsService', () => {
   };
   let aiInsightsCache: { get: jest.Mock; set: jest.Mock; makeKey: jest.Mock };
   let accountsService: { findAllByUser: jest.Mock };
+  let ragService: { answer: jest.Mock };
   let fakeQb: ReturnType<typeof createFakeQueryBuilder>;
 
   beforeEach(async () => {
@@ -101,6 +107,9 @@ describe('AnalyticsService', () => {
       makeKey: jest.fn().mockReturnValue('cache-key'),
     };
     accountsService = { findAllByUser: jest.fn().mockResolvedValue([]) };
+    ragService = {
+      answer: jest.fn().mockResolvedValue({ answer: 'rag answer' }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -113,6 +122,7 @@ describe('AnalyticsService', () => {
         { provide: GeminiService, useValue: geminiService },
         { provide: AiInsightsCacheService, useValue: aiInsightsCache },
         { provide: AccountsService, useValue: accountsService },
+        { provide: RagService, useValue: ragService },
       ],
     }).compile();
 
@@ -155,6 +165,11 @@ describe('AnalyticsService', () => {
       expect(fakeQb.where).toHaveBeenCalledWith('tx.userId = :userId', {
         userId: 42,
       });
+    });
+
+    it('[Phase 1] gates every query on reviewed = true', async () => {
+      await service.getSummary(1, undefined, 'all');
+      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.reviewed = true');
     });
 
     it('applies an accountId filter when provided', async () => {
@@ -494,14 +509,27 @@ describe('AnalyticsService', () => {
       expect(result.answer).toContain('Could you specify');
     });
 
-    it('returns a canned help message when intent is "unknown"', async () => {
+    it('[Phase 3] routes intent "unknown" to RagService.answer instead of the old canned message', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({ intent: 'unknown' }),
       );
-      const result = await service.financeChat(1, 'tell me a joke');
-      expect(result.answer).toContain(
-        'I can answer questions about your recorded transactions',
-      );
+      ragService.answer.mockResolvedValue({
+        answer: 'Your late fee is 2%.',
+        sources: [
+          { documentId: 1, documentTitle: 'March', snippet: 'late fee 2%' },
+        ],
+      });
+
+      const result = await service.financeChat(1, 'what is my late fee?');
+
+      expect(ragService.answer).toHaveBeenCalledWith(1, 'what is my late fee?');
+      expect(result).toEqual({
+        answer: 'Your late fee is 2%.',
+        sources: [
+          { documentId: 1, documentTitle: 'March', snippet: 'late fee 2%' },
+        ],
+      });
+      // The deterministic-SQL path must stay untouched by this fallback.
       expect(transactionsRepository.createQueryBuilder).not.toHaveBeenCalled();
     });
 
@@ -531,12 +559,62 @@ describe('AnalyticsService', () => {
       expect(result.answer).toContain('No account matched');
     });
 
-    it('reports no transactions found when the period has zero transactions', async () => {
+    it('reports "add or import" when the period is empty and the user has no reviewed data at all', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse());
-      fakeQb.getCount.mockResolvedValue(0);
+      fakeQb.getCount.mockResolvedValue(0); // period count, unreviewed-in-period, hasAny — all 0
 
       const result = await service.financeChat(1, 'how much did I spend');
       expect(result.answer).toContain('No transactions found between');
+      expect(result.answer).toContain('Add or import transactions');
+    });
+
+    it('[empty-period diagnosis] points at the Review page when unreviewed transactions exist in this exact period', async () => {
+      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse());
+      fakeQb.getCount
+        .mockResolvedValueOnce(0) // period count (reviewed=true) -> triggers the empty-period branch
+        .mockResolvedValueOnce(3); // countUnreviewedInPeriod
+
+      const result = await service.financeChat(1, 'how much did I spend');
+
+      expect(result.answer).toContain('3 transactions');
+      expect(result.answer).toContain('still waiting for review');
+      expect(result.answer).toContain('Review page');
+    });
+
+    it('[empty-period diagnosis] singular phrasing for exactly one unreviewed transaction', async () => {
+      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse());
+      fakeQb.getCount.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+      const result = await service.financeChat(1, 'how much did I spend');
+
+      expect(result.answer).toContain(
+        '1 transaction in that period is still waiting',
+      );
+      expect(result.answer).not.toContain('1 transactions');
+    });
+
+    it('[empty-period diagnosis] suggests a different period when the user has reviewed data, just not in this window', async () => {
+      geminiService.parseFinanceChatIntent.mockResolvedValue(mockParse());
+      fakeQb.getCount
+        .mockResolvedValueOnce(0) // period count
+        .mockResolvedValueOnce(0) // countUnreviewedInPeriod
+        .mockResolvedValueOnce(42); // hasAnyReviewedTransactions (count > 0)
+
+      const result = await service.financeChat(1, 'how much did I spend');
+
+      expect(result.answer).toContain('transaction history outside this range');
+      expect(result.answer).not.toContain('Add or import transactions');
+    });
+
+    it('[Phase 1] gates financeChat queries on reviewed = true too (separate base query from getSummary)', async () => {
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({ intent: 'sum_debits' }),
+      );
+      fakeQb.getCount.mockResolvedValue(3);
+      fakeQb.getRawOne.mockResolvedValue({ sum: '100.00' });
+
+      await service.financeChat(1, 'how much did I spend');
+      expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.reviewed = true');
     });
 
     it('sum_debits: reports total debit spending, with and without a category filter', async () => {
@@ -648,11 +726,11 @@ describe('AnalyticsService', () => {
       expect(result.answer).toContain('No debit categories');
     });
 
-    it('compare_amount: asks for a number when no amount was parsed', async () => {
+    it('compare_amount: asks for a number when neither bound was parsed', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({
           intent: 'compare_amount',
-          filters: emptyFilters({ amount: null }),
+          filters: emptyFilters({ amountMin: null, amountMax: null }),
         }),
       );
       fakeQb.getCount.mockResolvedValue(4);
@@ -663,11 +741,11 @@ describe('AnalyticsService', () => {
       );
     });
 
-    it('compare_amount: "gte" passes when spend meets the threshold', async () => {
+    it('compare_amount: "at least" (amountMin only) passes when spend meets the threshold', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({
           intent: 'compare_amount',
-          filters: emptyFilters({ amount: 10000, compareOp: 'gte' }),
+          filters: emptyFilters({ amountMin: 10000 }),
         }),
       );
       fakeQb.getCount.mockResolvedValue(4);
@@ -678,11 +756,11 @@ describe('AnalyticsService', () => {
       expect(result.answer).not.toContain('not at least');
     });
 
-    it('compare_amount: "gte" fails when spend is below the threshold', async () => {
+    it('compare_amount: "at least" (amountMin only) fails when spend is below the threshold', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({
           intent: 'compare_amount',
-          filters: emptyFilters({ amount: 10000, compareOp: 'gte' }),
+          filters: emptyFilters({ amountMin: 10000 }),
         }),
       );
       fakeQb.getCount.mockResolvedValue(4);
@@ -692,11 +770,11 @@ describe('AnalyticsService', () => {
       expect(result.answer).toContain('not at least');
     });
 
-    it('compare_amount: "lte" passes when spend is at or below the threshold', async () => {
+    it('compare_amount: "at most" (amountMax only) passes when spend is at or below the threshold', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({
           intent: 'compare_amount',
-          filters: emptyFilters({ amount: 10000, compareOp: 'lte' }),
+          filters: emptyFilters({ amountMax: 10000 }),
         }),
       );
       fakeQb.getCount.mockResolvedValue(4);
@@ -707,11 +785,11 @@ describe('AnalyticsService', () => {
       expect(result.answer).not.toContain('not at most');
     });
 
-    it('compare_amount: "eq" passes on an exact (float-tolerant) match', async () => {
+    it('compare_amount: "exactly" (equal amountMin/amountMax) passes on an exact (float-tolerant) match', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({
           intent: 'compare_amount',
-          filters: emptyFilters({ amount: 10000, compareOp: 'eq' }),
+          filters: emptyFilters({ amountMin: 10000, amountMax: 10000 }),
         }),
       );
       fakeQb.getCount.mockResolvedValue(4);
@@ -722,11 +800,11 @@ describe('AnalyticsService', () => {
       expect(result.answer).not.toContain('not exactly');
     });
 
-    it('compare_amount: "eq" fails when the amounts differ', async () => {
+    it('compare_amount: "exactly" fails when the amounts differ', async () => {
       geminiService.parseFinanceChatIntent.mockResolvedValue(
         mockParse({
           intent: 'compare_amount',
-          filters: emptyFilters({ amount: 10000, compareOp: 'eq' }),
+          filters: emptyFilters({ amountMin: 10000, amountMax: 10000 }),
         }),
       );
       fakeQb.getCount.mockResolvedValue(4);
@@ -734,6 +812,24 @@ describe('AnalyticsService', () => {
 
       const result = await service.financeChat(1, 'did I spend exactly 10000');
       expect(result.answer).toContain('not exactly');
+    });
+
+    it('compare_amount: "between" (distinct amountMin and amountMax) checks the sum falls in range', async () => {
+      geminiService.parseFinanceChatIntent.mockResolvedValue(
+        mockParse({
+          intent: 'compare_amount',
+          filters: emptyFilters({ amountMin: 5000, amountMax: 10000 }),
+        }),
+      );
+      fakeQb.getCount.mockResolvedValue(4);
+      fakeQb.getRawOne.mockResolvedValue({ sum: '7500.00' });
+
+      const result = await service.financeChat(
+        1,
+        'did I spend between 5000 and 10000',
+      );
+      expect(result.answer).toContain('between ₹5,000 and ₹10,000');
+      expect(result.answer).not.toContain('not between');
     });
 
     it('investment_estimate: reports estimated investment-like debits', async () => {
@@ -745,6 +841,343 @@ describe('AnalyticsService', () => {
 
       const result = await service.financeChat(1, 'how much did I invest');
       expect(result.answer).toContain('investment-style keywords');
+    });
+
+    describe('list_transactions', () => {
+      it('lists individual debit transactions matching a threshold, with a header stating the total and threshold', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ amountMin: 10000 }),
+          }),
+        );
+        fakeQb.getCount
+          .mockResolvedValueOnce(5) // countTransactions zero-check
+          .mockResolvedValueOnce(2); // listMatchingTransactions's own total
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-10',
+            description: 'Laptop',
+            amount: 55000,
+            category: 'Shopping',
+          },
+          {
+            transaction_date: '2026-04-05',
+            description: 'Rent',
+            amount: 15000,
+            category: 'Rent',
+          },
+        ]);
+
+        const result = await service.financeChat(
+          1,
+          'show me transactions over 10000',
+        );
+
+        expect(result.answer).toContain(
+          '2 debit transactions of at least ₹10,000',
+        );
+        expect(result.answer).toContain('2026-04-10 — Laptop — ₹55,000');
+        expect(result.answer).toContain('2026-04-05 — Rent — ₹15,000');
+      });
+
+      it('reports no matches with the threshold phrase when nothing matches', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ amountMin: 50000 }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(0);
+        fakeQb.getMany.mockResolvedValue([]);
+
+        const result = await service.financeChat(1, 'transactions over 50000');
+
+        expect(result.answer).toContain(
+          'No debit transactions of at least ₹50,000 found',
+        );
+      });
+
+      it('phrases "at most" for amountMax-only and "between" for a distinct amountMin+amountMax range', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ amountMax: 500 }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'Coffee',
+            amount: 200,
+            category: 'Food',
+          },
+        ]);
+
+        const result = await service.financeChat(1, 'transactions under 500');
+        expect(result.answer).toContain('at most ₹500');
+      });
+
+      it('filters between a distinct amountMin and amountMax via a BETWEEN clause', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ amountMin: 500, amountMax: 2000 }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'Groceries',
+            amount: 1200,
+            category: 'Food',
+          },
+        ]);
+
+        const result = await service.financeChat(
+          1,
+          'transactions between 500 and 2000',
+        );
+        expect(fakeQb.andWhere).toHaveBeenCalledWith(
+          'tx.amount BETWEEN :amountMin AND :amountMax',
+          { amountMin: 500, amountMax: 2000 },
+        );
+        expect(result.answer).toContain('between ₹500 and ₹2,000');
+      });
+
+      it('notes truncation when more rows match than are shown', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ amountMin: 100 }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(30);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'A',
+            amount: 9000,
+            category: 'Shopping',
+          },
+        ]);
+
+        const result = await service.financeChat(1, 'transactions over 100');
+        expect(result.answer).toContain('30 debit transactions');
+        expect(result.answer).toContain('showing 1 of 30');
+      });
+
+      it('applies a category filter when the user names one', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ category: 'Food' }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'Cafe',
+            amount: 300,
+            category: 'Food',
+          },
+        ]);
+
+        await service.financeChat(1, 'list my food transactions');
+        expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.category ILIKE :cat', {
+          cat: '%Food%',
+        });
+      });
+
+      it('searches by vendor/merchant keyword via filters.description', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ description: 'Swiggy' }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'SWIGGY ORDER #123',
+            amount: 450,
+            category: 'Food',
+          },
+        ]);
+
+        const result = await service.financeChat(
+          1,
+          'find my Swiggy transactions',
+        );
+        expect(fakeQb.andWhere).toHaveBeenCalledWith(
+          'tx.description ILIKE :desc',
+          { desc: '%Swiggy%' },
+        );
+        expect(result.answer).toContain('matching “Swiggy”');
+      });
+
+      it('lists credits instead of debits when filters.type is CREDIT', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ type: 'CREDIT', amountMin: 5000 }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'Salary',
+            amount: 80000,
+            category: 'Salary',
+          },
+        ]);
+
+        const result = await service.financeChat(1, 'credits above 5000');
+        expect(fakeQb.andWhere).toHaveBeenCalledWith('tx.type = :type', {
+          type: 'CREDIT',
+        });
+        expect(result.answer).toContain('credit transaction');
+      });
+
+      it('sorts by date ascending when filters.sortBy/sortDir request it', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'list_transactions',
+            filters: emptyFilters({ sortBy: 'date', sortDir: 'asc' }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: 'Oldest',
+            amount: 100,
+            category: 'Other',
+          },
+        ]);
+
+        await service.financeChat(1, 'my oldest transactions');
+        expect(fakeQb.orderBy).toHaveBeenCalledWith(
+          'tx.transaction_date',
+          'ASC',
+        );
+      });
+
+      it('defaults to sorting by amount descending when no sort is requested', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({ intent: 'list_transactions', filters: emptyFilters() }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: null,
+            amount: 300,
+            category: 'Food',
+          },
+        ]);
+
+        await service.financeChat(1, 'list my transactions');
+        expect(fakeQb.orderBy).toHaveBeenCalledWith('tx.amount', 'DESC');
+      });
+
+      it('falls back to the category or a generic label when description is blank', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({ intent: 'list_transactions', filters: emptyFilters() }),
+        );
+        fakeQb.getCount.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
+        fakeQb.getMany.mockResolvedValue([
+          {
+            transaction_date: '2026-04-01',
+            description: null,
+            amount: 300,
+            category: 'Food',
+          },
+        ]);
+
+        const result = await service.financeChat(1, 'list my transactions');
+        expect(result.answer).toContain('2026-04-01 — Food — ₹300');
+      });
+    });
+
+    describe('category_breakdown', () => {
+      it('lists every category with its total, not just the highest', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({ intent: 'category_breakdown' }),
+        );
+        fakeQb.getCount.mockResolvedValue(10);
+        fakeQb.getRawMany.mockResolvedValue([
+          { name: 'Food', total: '5000.00' },
+          { name: 'Rent', total: '15000.00' },
+          { name: null, total: '200.00' },
+        ]);
+
+        const result = await service.financeChat(
+          1,
+          'break down my spending by category',
+        );
+
+        expect(result.answer).toContain('• Food — ₹5,000');
+        expect(result.answer).toContain('• Rent — ₹15,000');
+        expect(result.answer).toContain('• Other — ₹200');
+      });
+
+      it('reports no categories when there is no debit spend in the period', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({ intent: 'category_breakdown' }),
+        );
+        fakeQb.getCount.mockResolvedValue(10);
+        fakeQb.getRawMany.mockResolvedValue([]);
+
+        const result = await service.financeChat(1, 'spending by category');
+        expect(result.answer).toContain('No debit categories');
+      });
+    });
+
+    describe('compare_periods', () => {
+      it('reports current vs. immediately-preceding-period spending with a direction and delta', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({
+            intent: 'compare_periods',
+            filters: emptyFilters({ relative: 'this_month' }),
+          }),
+        );
+        fakeQb.getCount.mockResolvedValue(10);
+        fakeQb.getRawOne
+          .mockResolvedValueOnce({ sum: '20000.00' }) // current credits
+          .mockResolvedValueOnce({ sum: '15000.00' }) // current debits
+          .mockResolvedValueOnce({ sum: '18000.00' }) // previous credits
+          .mockResolvedValueOnce({ sum: '10000.00' }); // previous debits
+
+        const result = await service.financeChat(
+          1,
+          'how does this month compare to last month',
+        );
+
+        expect(result.answer).toContain('₹15,000');
+        expect(result.answer).toContain('up by ₹5,000');
+        expect(result.answer).toContain('₹10,000');
+      });
+
+      it('reports "down" when current spending is lower than the previous period', async () => {
+        geminiService.parseFinanceChatIntent.mockResolvedValue(
+          mockParse({ intent: 'compare_periods' }),
+        );
+        fakeQb.getCount.mockResolvedValue(10);
+        fakeQb.getRawOne
+          .mockResolvedValueOnce({ sum: '0' })
+          .mockResolvedValueOnce({ sum: '5000.00' })
+          .mockResolvedValueOnce({ sum: '0' })
+          .mockResolvedValueOnce({ sum: '9000.00' });
+
+        const result = await service.financeChat(1, 'am I spending less');
+        expect(result.answer).toContain('down by ₹4,000');
+      });
     });
 
     it('describes a single-account scope by bank name and account id', async () => {

@@ -2,11 +2,13 @@ import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Document } from '../entities/document.entity';
+import { Transaction } from '../entities/transaction.entity';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { ExtractionService } from './extraction.service';
 import { AccountsService } from '../accounts/accounts.service';
+import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -14,10 +16,13 @@ export class DocumentsService {
   constructor(
     @InjectRepository(Document)
     private readonly documentsRepository: Repository<Document>,
+    @InjectRepository(Transaction)
+    private readonly transactionsRepository: Repository<Transaction>,
     private readonly storageService: SupabaseStorageService,
     @Inject(forwardRef(() => ExtractionService))
     private readonly extractionService: ExtractionService,
     private readonly accountsService: AccountsService,
+    private readonly aiInsightsCache: AiInsightsCacheService,
   ) {}
 
   async upload(
@@ -134,5 +139,44 @@ export class DocumentsService {
 
   async countByUser(userId: number): Promise<number> {
     return this.documentsRepository.count({ where: { userId } });
+  }
+
+  /**
+   * Bulk-confirms every unreviewed transaction belonging to this document in
+   * one DB transaction — the one-click "Confirm all N" path for the
+   * reconciliation-matched case (per-row confirm still goes through the
+   * existing PATCH /transactions/:id with { reviewed: true }).
+   */
+  async confirmReview(
+    id: number,
+    userId: number,
+  ): Promise<{ confirmed: number }> {
+    const document = await this.documentsRepository.findOne({
+      where: { id, userId },
+    });
+    if (!document) {
+      throw new NotFoundException(`Document with ID "${id}" not found`);
+    }
+
+    const unreviewed = await this.transactionsRepository.find({
+      where: { documentId: id, userId, reviewed: false },
+      select: ['id'],
+    });
+
+    if (unreviewed.length > 0) {
+      await this.transactionsRepository.manager.transaction(
+        async (manager) => {
+          await manager
+            .createQueryBuilder()
+            .update(Transaction)
+            .set({ reviewed: true })
+            .where('documentId = :id AND userId = :userId', { id, userId })
+            .execute();
+        },
+      );
+      this.aiInsightsCache.invalidateForUser(userId);
+    }
+
+    return { confirmed: unreviewed.length };
   }
 }

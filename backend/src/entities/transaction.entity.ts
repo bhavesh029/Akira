@@ -50,6 +50,12 @@ export class Transaction {
   @Column({ type: 'text', nullable: true })
   description: string;
 
+  // Extracted transactions always land unreviewed and are excluded from
+  // every analytics/budget/net-worth calculation (AnalyticsService.baseFilteredQuery)
+  // until the user explicitly confirms them via the review workflow.
+  @Column({ type: 'boolean', default: false })
+  reviewed: boolean;
+
   @CreateDateColumn({ type: 'timestamp' })
   created_at: Date;
 }

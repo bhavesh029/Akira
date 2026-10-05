@@ -143,6 +143,7 @@
   font-size: var(--font-size-sm);
   line-height: 1.5;
   max-width: 90%;
+  white-space: pre-line;
 }
 
 .chat-bubble-user {
@@ -157,6 +158,24 @@
   background-color: var(--color-bg, #f9fafb);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
+}
+
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.chat-source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent-light);
+  color: var(--color-accent);
+  cursor: default;
 }
 
 .chat-bubble-loading {

@@ -50,6 +50,8 @@ mindmap
           Summary
           AI Insights (cached)
           Finance Chat
+            Deterministic SQL intents
+            RAG fallback (grounded chat)
     Database
       Supabase PostgreSQL
       pgvector
@@ -67,7 +69,7 @@ mindmap
       Google Gemini 2.5 Flash
       Gemini Vision
       pdf-parse
-      text-embedding-004 (future RAG)
+      gemini-embedding-001 (RAG chunk/query embeddings, 768-dim)
 ```
 
 ---
@@ -104,7 +106,11 @@ graph TD
     AnalyticsController -->|Aggregate SQL Metrics| DB[(Supabase PostgreSQL)]
     AnalyticsController -->|AI Insights| GeminiFlash
     AnalyticsController -->|Cache Insights| InsightsCache[(In-Memory AI Insights Cache)]
-    AnalyticsController -->|/analytics/chat| GeminiFlash
+    AnalyticsController -->|/analytics/chat deterministic intents| GeminiFlash
+    AnalyticsController -->|/analytics/chat intent=unknown| RagService[RAG Service]
+    RagService -->|Embed question + cosine search| text_embed[gemini-embedding-001]
+    RagService -->|Grounded generation + citations| GeminiFlash
+    text_embed --> DB
 
     %% Database Layer
     AuthController --> DB
@@ -112,9 +118,9 @@ graph TD
     DocumentsController --> DB
     TransactionsController --> DB
 
-    %% RAG capabilities (Future Scope)
-    DocumentsController -.->|Generate Embeddings| text_embed[text-embedding-004]
-    text_embed -.->|Store Vector| DB
+    %% RAG indexing (on extraction, text-based documents only)
+    DocumentsController -->|Chunk + Embed raw_text| text_embed
+    text_embed -->|Store vector(768)| DB
 
     %% Styling
     classDef frontend fill:#61dafb,stroke:#333,stroke-width:2px,color:#000
@@ -123,7 +129,7 @@ graph TD
     classDef ai fill:#4285f4,stroke:#333,stroke-width:2px,color:#fff
 
     class Client,UI,API_Client frontend
-    class NestApp,AuthController,AccountsController,DocumentsController,TransactionsController,AnalyticsController backend
+    class NestApp,AuthController,AccountsController,DocumentsController,TransactionsController,AnalyticsController,RagService backend
     class DB,Storage,InsightsCache db
     class GeminiVision,GeminiFlash,text_embed,BankParsers,Parser ai
 ```
@@ -139,7 +145,7 @@ graph TD
   - `src/assets`: Static assets, images, icons.
   - `src/components`: Reusable UI (currently `Layout` — the authenticated app shell/nav).
   - `src/context`: React Context providers for global state (`AuthContext` — JWT/session).
-  - `src/pages`: Main application views — `LoginPage`, `RegisterPage`, `DashboardPage` (metrics, charts, AI insights, finance chat widget), `AccountsPage`, `DocumentsPage`, `TransactionsPage`.
+  - `src/pages`: Main application views — `LoginPage`, `RegisterPage`, `DashboardPage` (metrics, charts, AI insights, finance chat widget), `AccountsPage`, `DocumentsPage`, `ReviewPage` (per-document reconciliation + mandatory transaction review, reached from a completed document's "Review" action), `TransactionsPage`.
 
 ### `/backend`
 - **Tech Stack**: Nest.js 11, TypeORM 0.3, TypeScript, Passport-JWT, `@google/generative-ai`, `@supabase/supabase-js`.
@@ -152,9 +158,11 @@ graph TD
     - `gemini.service.ts` — Gemini Vision/Flash prompting for transaction extraction and finance-chat intent parsing.
     - `supabase-storage.service.ts` — upload/download/signed URLs against Supabase Storage.
     - `parsers/` — deterministic per-bank statement parsers (`hdfc`, `icici`, `hsbc`, `uco`, `pnb`, `axis`) behind a common `BankParser` interface, selected by `parser.factory.ts` before falling back to Gemini.
+    - `chunking.util.ts` — hand-rolled line-aware text splitter (~800 chars, ~150 overlap) for Phase 3's RAG indexing.
+    - `document-chunks.service.ts` — raw-SQL insert/cosine-similarity-search (`pgvector`'s `<=>` operator) over `document_chunks`, scoped to a user via a join to `documents`.
   - `src/transactions`: Manages parsed/manual transactions linked to accounts and documents.
-  - `src/analytics`: Aggregated metrics (`analytics.service.ts`), AI insights with an in-memory TTL cache (`ai-insights-cache.service.ts`, invalidated on transaction changes), and the natural-language `financeChat` endpoint (`finance-chat.types.ts` / `finance-chat.dto.ts`).
-  - `src/entities`: TypeORM entity definitions mapping to the PostgreSQL database (`User` w/ `UserRole` ADMIN/USER, `Account`, `Document` w/ `DocumentStatus`, `Transaction`, `DocumentChunk`).
+  - `src/analytics`: Aggregated metrics (`analytics.service.ts`), AI insights with an in-memory TTL cache (`ai-insights-cache.service.ts`, invalidated on transaction changes), and the natural-language `financeChat` endpoint (`finance-chat.types.ts` / `finance-chat.dto.ts`). Both of its base query builders (`baseFilteredQuery`, `baseTxQuery`) gate on `tx.reviewed = true` — unconfirmed extracted transactions never reach any aggregate. `rag.service.ts` handles `financeChat`'s `unknown`-intent fallback — grounded Q&A over a user's own raw statement text (fine print, fees, terms), kept deliberately separate in code from the deterministic-SQL intents so the "LLM never states the number" guarantee there is unaffected.
+  - `src/entities`: TypeORM entity definitions mapping to the PostgreSQL database (`User` w/ `UserRole` ADMIN/USER, `Account`, `Document` w/ `DocumentStatus` and reconciliation fields (`opening_balance`/`closing_balance`/`reconciled_delta`/`reconciliation_status`/`error_message`), `Transaction` w/ `reviewed` boolean, `DocumentChunk`).
 
 ---
 
@@ -165,8 +173,10 @@ graph TD
 4. **Backend** securely stores the raw file in **Supabase Storage**.
 5. **Backend** extracts text via **pdf-parse** (decrypting first if password-protected), or falls back to **Gemini Vision** for scanned/image documents.
 6. Extracted text is matched against the **bank-specific parsers** (HDFC/ICICI/HSBC/UCO/PNB/AXIS); if no parser matches, **Google Gemini 2.5 Flash** structures it into JSON transactions (Date, Amount, Category, Vendor).
-7. Structured JSON is verified and saved via the **Transactions Module** to **Supabase PostgreSQL**; document status moves `PENDING` → `PROCESSING` → `COMPLETED`/`FAILED`.
-8. **Frontend** polls the processing status and fetches the **Analytics** endpoints to show updated cash flow charts, cached Gemini-generated financial insights, and answers from the **finance chat** widget.
+7. Structured JSON is verified and saved via the **Transactions Module** to **Supabase PostgreSQL** as `reviewed: false`; document status moves `PENDING` → `PROCESSING` → `COMPLETED`/`FAILED`. In the same step, **Gemini** is asked for the statement's own printed opening/closing balance (never inferred) and the extracted transactions are reconciled against it (±₹5 tolerance), setting the document's `reconciliation_status` (`MATCHED`/`MISMATCH`/`NOT_APPLICABLE`).
+8. **User** opens the document's **Review** page: a `MATCHED` reconciliation offers one-click **bulk confirm**; a `MISMATCH` or `NOT_APPLICABLE` (e.g. no balance found, or a scanned/image statement) requires **per-row review/edit then confirm**. Only confirmed (`reviewed: true`) transactions ever count toward analytics.
+9. **Frontend** polls the processing status and fetches the **Analytics** endpoints to show updated cash flow charts, cached Gemini-generated financial insights, and answers from the **finance chat** widget — all scoped to reviewed transactions only.
+10. In the same extraction step (text-based documents only — PDF-with-text or CSV), the raw text is persisted to `Document.raw_text`, split into overlapping chunks, embedded via **Gemini (`gemini-embedding-001`, 768-dim)**, and stored in `document_chunks` (`pgvector`). A finance-chat question that the deterministic intent parser can't map to a known numeric intent (e.g. "what's the late payment fee?") falls back to this grounded-retrieval path: embed the question, cosine-search the user's own chunks, generate an answer constrained to the retrieved excerpts, and return it with `sources` citations.
 
 ---
 

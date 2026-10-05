@@ -91,6 +91,21 @@ describe('TransactionsService', () => {
       );
     });
 
+    it('[Phase 1] marks a manually-created transaction reviewed immediately (no extraction uncertainty)', async () => {
+      const dto = {
+        accountId: 1,
+        amount: 500,
+        type: TransactionType.DEBIT,
+        transaction_date: '2026-03-01',
+      } as any;
+
+      await service.create(10, dto);
+
+      expect(transactionsRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewed: true }),
+      );
+    });
+
     it('propagates the NotFoundException if the account does not belong to the user', async () => {
       accountsService.findOne.mockRejectedValue(
         new NotFoundException('Account with ID "1" not found'),
@@ -156,6 +171,14 @@ describe('TransactionsService', () => {
       expect(fakeQb.andWhere).toHaveBeenCalledWith(
         'tx.accountId = :accountId',
         { accountId: 5 },
+      );
+    });
+
+    it('applies a documentId filter when provided', async () => {
+      await service.findAllByUser(10, { documentId: 7 });
+      expect(fakeQb.andWhere).toHaveBeenCalledWith(
+        'tx.documentId = :documentId',
+        { documentId: 7 },
       );
     });
 

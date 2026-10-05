@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { analyticsApi, type AnalyticsSummary, type AiInsights } from '../api/analytics';
+import { analyticsApi, type AnalyticsSummary, type AiInsights, type FinanceChatSource } from '../api/analytics';
 
-type ChatMessage = { role: 'user' | 'assistant'; text: string };
+type ChatMessage = { role: 'user' | 'assistant'; text: string; sources?: FinanceChatSource[] };
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -66,7 +66,7 @@ export default function DashboardPage() {
     setChatLoading(true);
     try {
       const { data } = await analyticsApi.chat(text);
-      setChatMessages((m) => [...m, { role: 'assistant', text: data.answer }]);
+      setChatMessages((m) => [...m, { role: 'assistant', text: data.answer, sources: data.sources }]);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
@@ -135,6 +135,15 @@ export default function DashboardPage() {
               className={`chat-bubble ${msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-assistant'}`}
             >
               {msg.text}
+              {msg.sources && msg.sources.length > 0 && (
+                <div className="chat-sources">
+                  {msg.sources.map((s, si) => (
+                    <span key={si} className="chat-source-tag" title={s.snippet}>
+                      {s.documentTitle}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
           {chatLoading && (

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { documentsApi, type DocumentItem } from '../api/documents';
 import { accountsApi, type Account } from '../api/accounts';
 import './Documents.css';
@@ -156,6 +157,11 @@ export default function DocumentsPage() {
                       {new Date(doc.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
                     <td className="documents-table-actions">
+                      {doc.status === 'COMPLETED' && (
+                        <Link to={`/documents/${doc.id}/review`} className="btn btn-ghost">
+                          Review
+                        </Link>
+                      )}
                       <button
                         className="btn btn-ghost documents-delete-btn"
                         onClick={() => setDeleteConfirm(doc.id)}

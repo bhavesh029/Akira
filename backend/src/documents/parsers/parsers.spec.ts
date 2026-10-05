@@ -249,6 +249,21 @@ describe('UCOParser', () => {
     expect(parser.canParse('icici bank')).toBe(false);
   });
 
+  it('canParse also matches via the UCBA IFSC prefix, when the literal bank name is absent (found via a real user report, docs/BUGS.md)', () => {
+    // A real statement's letterhead (where "UCO Bank" is printed) is often a
+    // logo image that doesn't survive PDF text extraction — the IFSC code
+    // inside the account details table is plain text and does survive, and
+    // "UCBA" is RBI-allocated to UCO Bank specifically.
+    expect(
+      parser.canParse('Account No. 05730110085585 IFSC Code UCBA0000573'),
+    ).toBe(true);
+    expect(parser.canParse('ifsc code ucba0001234 branch: test')).toBe(true);
+  });
+
+  it('canParse does not match an unrelated IFSC prefix', () => {
+    expect(parser.canParse('IFSC Code HDFC0001234')).toBe(false);
+  });
+
   it('resolves amount/type against the running balance and reconciles exactly to the closing balance', () => {
     const statementText = [
       'Transaction Summary',
@@ -317,6 +332,66 @@ describe('UCOParser', () => {
       expect.objectContaining({ transaction_date: '2026-01-17', amount: 100 }),
       expect.objectContaining({ transaction_date: '2026-01-19', amount: 1000 }),
     ]);
+  });
+
+  it('end-to-end: matches and parses a realistic letterhead-less statement (IFSC-only bank identification, no literal "UCO Bank" text) and reconciles exactly to the statement\'s own printed totals', () => {
+    // Mirrors the structure of a real UCO statement sample (redacted/
+    // reconstructed, not committed verbatim — see docs/BUGS.md): the bank
+    // name never appears as text (letterhead logo), the account details
+    // table is the only source of the IFSC code, and the footer repeats the
+    // deposit/withdrawal/closing-balance totals in a jumbled label/value
+    // order next to the opening balance.
+    const statementText = [
+      'Name',
+      'Address',
+      'Customer ID',
+      'Branch Name',
+      'IFSC Code',
+      '05730110085585	Account No.',
+      'UCBA0000573',
+      'Date Particulars Withdrawals Deposits Balance	Chq. No.',
+      '17-12-2025 MPAY/UPI/TRTR/111111111111/TESTUSER/ICIC/XXX 220.00 2.82',
+      '21-12-2025 05730110085585:Int.Pd:24-09-2025 to 20-12-2025 12.82	10.00',
+      '25-12-2025 MPAY/TRTR/222222222222/25-12-2025 19:54:13/MBS 11,012.82	11,000.00',
+      'Transaction Summary',
+      '222.82',
+      'Closing Balance 11,012.82',
+      'Opening Balance',
+      'Add : Deposits',
+      'Less : Withdrawals',
+      '11,010.00	2',
+      '220.00	1',
+      'No. of Transaction Value of Transactions',
+    ].join('\n');
+
+    expect(parser.canParse(statementText)).toBe(true);
+
+    const result = parser.parse(statementText);
+    expect(result).toEqual([
+      expect.objectContaining({
+        transaction_date: '2025-12-17',
+        amount: 220,
+        type: 'DEBIT',
+      }),
+      expect.objectContaining({
+        transaction_date: '2025-12-21',
+        amount: 10,
+        type: 'CREDIT',
+      }),
+      expect.objectContaining({
+        transaction_date: '2025-12-25',
+        amount: 11000,
+        type: 'CREDIT',
+      }),
+    ]);
+
+    const credits = result
+      .filter((t) => t.type === 'CREDIT')
+      .reduce((s, t) => s + t.amount, 0);
+    const debits = result
+      .filter((t) => t.type === 'DEBIT')
+      .reduce((s, t) => s + t.amount, 0);
+    expect(222.82 + credits - debits).toBeCloseTo(11012.82, 2);
   });
 });
 
