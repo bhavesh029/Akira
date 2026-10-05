@@ -7,9 +7,7 @@ export class ReconciliationAndReview1791136200000 implements MigrationInterface 
     await queryRunner.query(
       `ALTER TABLE "transactions" ADD "reviewed" boolean NOT NULL DEFAULT false`,
     );
-    await queryRunner.query(
-      `ALTER TABLE "documents" ADD "error_message" text`,
-    );
+    await queryRunner.query(`ALTER TABLE "documents" ADD "error_message" text`);
     await queryRunner.query(
       `ALTER TABLE "documents" ADD "opening_balance" numeric(12,2)`,
     );

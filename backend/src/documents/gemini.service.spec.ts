@@ -95,6 +95,91 @@ describe('GeminiService', () => {
     });
   });
 
+  describe('extractDocumentBalances', () => {
+    it('returns the parsed opening/closing balance from a clean JSON response', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 1000.5, "closing_balance": 650}'),
+      );
+
+      const result = await service.extractDocumentBalances('statement text');
+
+      const promptArg = mockGenerateContent.mock.calls[0][0];
+      expect(promptArg).toContain('opening and closing balance');
+      expect(promptArg).toContain('statement text');
+      expect(result).toEqual({ opening_balance: 1000.5, closing_balance: 650 });
+    });
+
+    it('strips ```json ... ``` markdown fences before parsing', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(
+          '```json\n{"opening_balance": 100, "closing_balance": 50}\n```',
+        ),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: 100, closing_balance: 50 });
+    });
+
+    it('returns nulls for whichever field is missing or null in the response', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 100, "closing_balance": null}'),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: 100, closing_balance: null });
+    });
+
+    it('returns both nulls when the response is valid JSON but not an object (e.g. an array)', async () => {
+      mockGenerateContent.mockResolvedValue(geminiResponse('[1, 2, 3]'));
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: null });
+    });
+
+    it('returns both nulls (never throws) when the response is not valid JSON', async () => {
+      mockGenerateContent.mockResolvedValue(geminiResponse('not json at all'));
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: null });
+    });
+
+    it('returns both nulls (never throws) when the API call itself fails', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('network error'));
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: null });
+    });
+
+    it('sanitizes a non-finite balance (e.g. a string that is not a number) to null', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(
+          '{"opening_balance": "not-a-number", "closing_balance": 50}',
+        ),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: 50 });
+    });
+
+    it('allows a zero or negative balance (overdraft), unlike a transaction amount', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 0, "closing_balance": -500.5}'),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: 0, closing_balance: -500.5 });
+    });
+
+    it('rounds a balance to 2 decimal places', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 100.126, "closing_balance": null}'),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result.opening_balance).toBe(100.13);
+    });
+  });
+
   describe('embedText', () => {
     it('returns the embedding values from embedContent', async () => {
       mockEmbedContent.mockResolvedValue({

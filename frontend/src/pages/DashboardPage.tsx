@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { analyticsApi, type AnalyticsSummary, type AiInsights, type FinanceChatSource } from '../api/analytics';
+import type { TransactionItem } from '../api/transactions';
 
 type ChatMessage = { role: 'user' | 'assistant'; text: string; sources?: FinanceChatSource[] };
 import {
@@ -231,8 +232,8 @@ export default function DashboardPage() {
                   <XAxis dataKey="month" stroke="var(--color-text-muted)" fontSize={12} tickLine={false} axisLine={false} />
                   <YAxis stroke="var(--color-text-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val) => `₹${val/1000}k`} />
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
-                  <Tooltip 
-                    formatter={(value: any) => formatCurrency(Number(value))}
+                  <Tooltip
+                    formatter={(value) => formatCurrency(Number(value))}
                     contentStyle={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)', borderRadius: '8px' }}
                   />
                   <Area type="monotone" dataKey="income" name="Income" stroke="#10b981" fillOpacity={1} fill="url(#colorIncome)" />
@@ -260,7 +261,7 @@ export default function DashboardPage() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: any) => formatCurrency(Number(value))} />
+                  <Tooltip formatter={(value) => formatCurrency(Number(value))} />
                   <Legend verticalAlign="bottom" height={36} iconType="circle" />
                 </PieChart>
               </ResponsiveContainer>
@@ -290,7 +291,7 @@ export default function DashboardPage() {
           {summary && summary.anomalies && summary.anomalies.length > 0 && (
              <div style={{ marginTop: 'var(--space-4)' }}>
               <h4 style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-muted)', marginBottom: 'var(--space-2)' }}>Largest Recent Debits</h4>
-              {summary.anomalies.map((tx: any) => (
+              {summary.anomalies.map((tx: TransactionItem) => (
                 <div key={tx.id} className="list-item">
                   <div>
                     <div style={{ fontWeight: 500 }}>{tx.description || tx.category}</div>
@@ -320,7 +321,7 @@ export default function DashboardPage() {
   );
 }
 
-function subscriptionsList(subs: any[]) {
+function subscriptionsList(subs: AiInsights['subscriptions']) {
   return subs.map((s, i) => (
     <div key={i} className="list-item">
       <div>

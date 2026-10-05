@@ -31,7 +31,9 @@ describe('DocumentsService', () => {
       find: jest.fn().mockResolvedValue([]),
       manager: {
         transaction: jest.fn(async (cb: (manager: any) => Promise<void>) =>
-          cb({ createQueryBuilder: jest.fn().mockReturnValue(fakeQueryBuilder) }),
+          cb({
+            createQueryBuilder: jest.fn().mockReturnValue(fakeQueryBuilder),
+          }),
         ),
       },
     };

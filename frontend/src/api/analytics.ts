@@ -1,4 +1,5 @@
 import api from './client';
+import type { TransactionItem } from './transactions';
 
 export interface AnalyticsMetrics {
   totalInflow: number;
@@ -22,7 +23,7 @@ export interface AnalyticsSummary {
   metrics: AnalyticsMetrics;
   cashflow: CashflowPoint[];
   topCategories: CategoryPoint[];
-  anomalies: any[];
+  anomalies: TransactionItem[];
 }
 
 export interface AiInsights {

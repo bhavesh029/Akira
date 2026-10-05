@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
+import type { AuthenticatedRequest } from '../auth/authenticated-request.interface';
 
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
@@ -32,8 +33,7 @@ const ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.csv'];
 function isAllowedFile(mimetype: string, originalname: string): boolean {
   const ext = originalname.toLowerCase().slice(originalname.lastIndexOf('.'));
   return (
-    ALLOWED_MIME_TYPES.includes(mimetype) &&
-    ALLOWED_EXTENSIONS.includes(ext)
+    ALLOWED_MIME_TYPES.includes(mimetype) && ALLOWED_EXTENSIONS.includes(ext)
   );
 }
 
@@ -61,7 +61,7 @@ export class DocumentsController {
     }),
   )
   upload(
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateDocumentDto,
   ) {
@@ -70,7 +70,7 @@ export class DocumentsController {
 
   @Get()
   findAll(
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
     @Query('accountId') accountId?: string,
   ) {
     const accountIdNum = accountId ? parseInt(accountId, 10) : undefined;
@@ -81,22 +81,35 @@ export class DocumentsController {
   }
 
   @Get(':id')
-  findOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+  findOne(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.documentsService.findOne(id, req.user.id);
   }
 
   @Patch(':id')
-  update(@Req() req: any, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateDocumentDto) {
+  update(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateDocumentDto,
+  ) {
     return this.documentsService.update(id, req.user.id, dto);
   }
 
   @Patch(':id/confirm-review')
-  confirmReview(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+  confirmReview(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.documentsService.confirmReview(id, req.user.id);
   }
 
   @Delete(':id')
-  remove(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+  remove(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.documentsService.remove(id, req.user.id);
   }
 }

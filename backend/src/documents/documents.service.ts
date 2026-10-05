@@ -1,6 +1,12 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
 import { Document } from '../entities/document.entity';
 import { Transaction } from '../entities/transaction.entity';
 import { CreateDocumentDto } from './dto/create-document.dto';
@@ -67,7 +73,7 @@ export class DocumentsService {
   }
 
   async findAllByUser(userId: number, accountId?: number): Promise<Document[]> {
-    const where: any = { userId };
+    const where: FindOptionsWhere<Document> = { userId };
     if (accountId != null) {
       where.accountId = accountId;
     }
@@ -79,7 +85,10 @@ export class DocumentsService {
     });
   }
 
-  async findOne(id: number, userId: number): Promise<Document & { download_url?: string }> {
+  async findOne(
+    id: number,
+    userId: number,
+  ): Promise<Document & { download_url?: string }> {
     const document = await this.documentsRepository.findOne({
       where: { id, userId },
       relations: ['account'],
@@ -93,7 +102,9 @@ export class DocumentsService {
     let download_url: string | undefined;
     if (document.file_url) {
       try {
-        download_url = await this.storageService.getSignedUrl(document.file_url);
+        download_url = await this.storageService.getSignedUrl(
+          document.file_url,
+        );
       } catch {
         // File might not exist in storage, continue without URL
       }
@@ -102,7 +113,11 @@ export class DocumentsService {
     return { ...document, download_url };
   }
 
-  async update(id: number, userId: number, dto: UpdateDocumentDto): Promise<Document> {
+  async update(
+    id: number,
+    userId: number,
+    dto: UpdateDocumentDto,
+  ): Promise<Document> {
     const document = await this.documentsRepository.findOne({
       where: { id, userId },
     });
@@ -164,16 +179,14 @@ export class DocumentsService {
     });
 
     if (unreviewed.length > 0) {
-      await this.transactionsRepository.manager.transaction(
-        async (manager) => {
-          await manager
-            .createQueryBuilder()
-            .update(Transaction)
-            .set({ reviewed: true })
-            .where('documentId = :id AND userId = :userId', { id, userId })
-            .execute();
-        },
-      );
+      await this.transactionsRepository.manager.transaction(async (manager) => {
+        await manager
+          .createQueryBuilder()
+          .update(Transaction)
+          .set({ reviewed: true })
+          .where('documentId = :id AND userId = :userId', { id, userId })
+          .execute();
+      });
       this.aiInsightsCache.invalidateForUser(userId);
     }
 

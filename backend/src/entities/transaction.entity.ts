@@ -1,4 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+} from 'typeorm';
 import { User } from './user.entity';
 import { Account } from './account.entity';
 import { Document } from './document.entity';
@@ -14,21 +21,26 @@ export class Transaction {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => User, user => user.transactions, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, (user) => user.transactions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column({ name: 'user_id' })
   userId: number;
 
-  @ManyToOne(() => Account, account => account.transactions, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Account, (account) => account.transactions, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'account_id' })
   account: Account;
 
   @Column({ name: 'account_id' })
   accountId: number;
 
-  @ManyToOne(() => Document, document => document.transactions, { nullable: true, onDelete: 'SET NULL' })
+  @ManyToOne(() => Document, (document) => document.transactions, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'document_id' })
   document: Document;
 
@@ -38,7 +50,12 @@ export class Transaction {
   @Column({ type: 'date' })
   transaction_date: string;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, transformer: new DecimalTransformer() })
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    transformer: new DecimalTransformer(),
+  })
   amount: number;
 
   @Column({ type: 'enum', enum: TransactionType })
