@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import AccountsPage from './pages/AccountsPage';
 import DocumentsPage from './pages/DocumentsPage';
 import TransactionsPage from './pages/TransactionsPage';
+import ReviewPage from './pages/ReviewPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/accounts" element={<AccountsPage />} />
             <Route path="/documents" element={<DocumentsPage />} />
+            <Route path="/documents/:id/review" element={<ReviewPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
           </Route>
 

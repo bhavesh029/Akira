@@ -197,7 +197,12 @@ export default function TransactionsPage() {
                   <td className="transactions-date">
                     {new Date(tx.transaction_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
-                  <td className="transactions-desc">{tx.description || '—'}</td>
+                  <td className="transactions-desc">
+                    {tx.description || '—'}
+                    {!tx.reviewed && (
+                      <span className="badge badge-neutral transactions-unreviewed-badge">Unreviewed</span>
+                    )}
+                  </td>
                   <td>
                     {tx.category ? (
                       <span className="badge badge-neutral">{tx.category}</span>

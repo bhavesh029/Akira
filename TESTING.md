@@ -246,24 +246,71 @@ zero transactions with no explanation.
 
 ---
 
-## Phase 1 — Reconciliation + mandatory review workflow ⬜ Not started
+## Phase 1 — Reconciliation + mandatory review workflow ✅ Done & verified
 
-**What it will add:** After a statement is extracted, the app checks the extracted
-transactions' total against the statement's own opening/closing balance. Regardless
-of whether it matches, transactions land in a "needs review" state and won't count
-toward your Dashboard/Analytics/Budgets until you explicitly confirm them (one-click
-if the balance matches cleanly, per-row review if it doesn't).
+**What changed:** Extracted transactions always land `reviewed: false` and are
+excluded from every analytics aggregate (`/analytics/summary`, AI insights, and
+`/analytics/chat`'s deterministic path — both of `AnalyticsService`'s base query
+builders now gate on `tx.reviewed = true`) until explicitly confirmed. Manually
+created transactions (`POST /transactions`) are `reviewed: true` immediately — they
+carry none of the extraction uncertainty the gate exists for.
 
-**How you'll test it once built:**
-- Upload a statement → confirm it does *not* immediately show up in Dashboard totals.
-- Open the new Review screen from the Documents page → see the reconciliation
-  banner (✅ matched / ⚠️ mismatch) and the extracted transactions.
-- Bulk-confirm (if matched) or edit-then-confirm individually (if mismatched) → then
-  confirm Dashboard/Transactions totals update to include them.
-- Edit an amount/category before confirming → confirm the corrected value is what
-  gets saved, not the original extraction.
+After each document finishes extracting, `GeminiService.extractDocumentBalances()`
+looks for an explicitly-printed opening/closing balance in the statement text (never
+inferred — `null` if absent) and `ExtractionService` compares it against the sum of
+that document's own extracted transactions, within a ₹5 tolerance:
+- **MATCHED** → the Review page shows a single "Confirm all N" bulk-confirm button
+  (`PATCH /documents/:id/confirm-review`, one DB transaction).
+- **MISMATCH** or **NOT_APPLICABLE** (no balance found, e.g. scanned/image statements
+  with no extractable text) → per-row review is required; no bulk shortcut.
 
-*(I'll fill in exact curl/UI steps here once this phase is implemented.)*
+**Deviation from the original plan worth knowing:** the plan called for wiring
+HDFC's parser-captured trailing balance group into `closing_balance` specifically.
+Instead, balance extraction is done once, uniformly, via Gemini for every
+text-based document (regardless of which deterministic parser matched) — this
+covers all banks instead of just HDFC, with no `BankParser` interface change. Vision
+(scanned/image) documents have no raw text to extract a balance from, so they
+reliably land on `NOT_APPLICABLE` → per-row review, which is the safe fallback
+already built for "no balance found."
+
+**How to test it:**
+
+1. Upload a statement whose text contains something Gemini will recognize as a
+   balance line (e.g. "Opening Balance: 1000.00" ... "Closing Balance: 650.00") with
+   transactions that actually sum to that delta. A plain `.csv` works, since CSVs go
+   through the same text path as a text PDF:
+   ```bash
+   curl -s -X POST http://localhost:3000/documents \
+     -H "Authorization: Bearer $TOKEN" \
+     -F "file=@statement.csv;type=text/csv" \
+     -F "title=Test Statement" \
+     -F "accountId=<your account id>"
+   ```
+2. Confirm it does *not* show up in `/analytics/summary` yet:
+   ```bash
+   curl -s "http://localhost:3000/analytics/summary" -H "Authorization: Bearer $TOKEN" | jq '.metrics'
+   ```
+   `transactionCount`/`totalOutflow` should not include the new transactions.
+3. Check the document's reconciliation fields:
+   ```bash
+   curl -s "http://localhost:3000/documents/<id>" -H "Authorization: Bearer $TOKEN" \
+     | jq '{reconciliation_status, opening_balance, closing_balance, reconciled_delta}'
+   ```
+4. Open **Documents** in the app → click **Review** on the completed document → confirm
+   the reconciliation banner matches step 3, and (if MATCHED) click **Confirm all N**,
+   or (if MISMATCH/NOT_APPLICABLE) **Edit** a row, change a value, **Save & Confirm**,
+   then **Confirm** the rest individually.
+5. Re-check `/analytics/summary` and the **Transactions** page — the confirmed
+   transactions should now be included, and rows no longer show the "Unreviewed"
+   badge.
+
+**Known local-dev quirk, not a regression:** this repo's local Postgres (`akira_db`
+docker-compose) has never had the `migrations` tracking table populated — its schema
+was built entirely by TypeORM's dev-only `synchronize`, same as before this phase
+(the Phase 0 baseline migration was never run against it either). The new
+`ReconciliationAndReview` migration was verified independently against a scratch
+database (clean apply + clean revert) — see
+`backend/src/migrations/1791136200000-ReconciliationAndReview.ts`.
 
 ---
 
@@ -281,20 +328,59 @@ comparing against the actual statement.
 
 ---
 
-## Phase 3 — RAG (grounded chat + semantic search) ⬜ Not started
+## Phase 3 — RAG (grounded chat + semantic search) ✅ Done & verified
 
-**What it will add:** The finance chat widget on the Dashboard will be able to
-answer questions grounded in your actual statement text and transaction history
-(not just pre-programmed SQL queries), with source citations.
+**What changed:** After a text-based document (PDF-with-text or CSV) finishes
+extraction, its raw text is persisted (`Document.raw_text`), split into ~800-char
+overlapping chunks, embedded with Gemini, and stored in `document_chunks`
+(`vector(768)`). The finance chat endpoint (`POST /analytics/chat`) now falls back
+to this grounded-retrieval path whenever `parseFinanceChatIntent()` returns
+`unknown` — in particular, fine-print/terms questions ("what's the late payment
+fee?") rather than the fixed canned message it used to return. The retrieval query
+is scoped to the logged-in user's own documents (join on `documents.user_id`, never
+a separate filter to forget). Every numeric figure in the generated answer is
+checked against the retrieved excerpts; an unverifiable one gets a disclaimer
+appended rather than being silently trusted. Deterministic numeric intents
+(`sum_debits`, `top_category`, etc.) are completely unaffected — this is a separate
+code path (`RagService`), not a change to `executeFinanceIntent`.
 
-**How you'll test it once built:**
-- Ask a question the current chat can't answer (e.g. "what does my March statement
-  say about late payment fees?") → confirm it retrieves and cites the right
-  document/snippet instead of saying "I don't understand."
-- Ask a normal numeric question (e.g. "how much did I spend this month?") → confirm
-  it still answers via the deterministic path, unaffected by this change.
+**How to test it:**
 
-*(Exact steps to follow once implemented.)*
+1. Upload a statement whose text includes something that reads like fine print, not
+   a transaction (a CSV works — it goes through the same text path as a text PDF):
+   ```bash
+   curl -s -X POST http://localhost:3000/documents \
+     -H "Authorization: Bearer $TOKEN" \
+     -F "file=@statement.csv;type=text/csv" \
+     -F "title=Test Statement" \
+     -F "accountId=<your account id>"
+   ```
+   e.g. a line like `A late payment fee of 2% of the outstanding balance will be
+   charged if payment is not received within 15 days, minimum fee Rs 500.`
+2. Once `COMPLETED`, confirm chunks were embedded:
+   ```bash
+   docker exec akira_db psql -U postgres -d akira_local -c \
+     "SELECT id, document_id, vector_dims(embedding) FROM document_chunks WHERE document_id = <id>;"
+   ```
+   Expect one or more rows with `vector_dims` = 768.
+3. Ask the fine-print question through chat:
+   ```bash
+   curl -s -X POST http://localhost:3000/analytics/chat -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"message":"What does my statement say about late payment fees?"}' | jq
+   ```
+   Expect `answer` to state the real fee (2%, Rs 500, 15 days) with a `[1]`-style
+   citation, and `sources` to list the right `documentId`/`documentTitle`.
+4. Ask a normal numeric question (e.g. "how much did I spend this month?") →
+   confirm the response has **no** `sources` field and still comes from the
+   deterministic path.
+5. In the **Dashboard** chat widget, ask the same fine-print question → confirm the
+   answer renders with a small citation tag (the document title) underneath it.
+
+**Known limitation, not a bug:** vision-path documents (scanned PDFs/images) never
+get indexed — there's no extracted text to chunk on that path today. A fine-print
+question about a scanned-only statement correctly returns "couldn't find anything,"
+not a wrong answer.
 
 ---
 

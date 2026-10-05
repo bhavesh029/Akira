@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsController } from './analytics.controller';
+import { RagService } from './rag.service';
 import { Transaction } from '../entities/transaction.entity';
 import { Account } from '../entities/account.entity';
 import { DocumentsModule } from '../documents/documents.module';
@@ -15,7 +16,7 @@ import { AccountsModule } from '../accounts/accounts.module';
     AiInsightsCacheModule,
     AccountsModule,
   ],
-  providers: [AnalyticsService],
-  controllers: [AnalyticsController]
+  providers: [AnalyticsService, RagService],
+  controllers: [AnalyticsController],
 })
 export class AnalyticsModule {}

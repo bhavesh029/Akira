@@ -6,13 +6,15 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { AccountsService } from '../accounts/accounts.service';
 import { AiInsightsCacheService } from '../analytics/ai-insights-cache.service';
+import { categorizeTransaction } from '../documents/categorization.util';
 
 export interface TransactionFilters {
   accountId?: number;
+  documentId?: number;
   type?: TransactionType;
   category?: string;
   from?: string; // date string
-  to?: string;   // date string
+  to?: string; // date string
   /** Case-insensitive match on description or category (PostgreSQL ILIKE) */
   search?: string;
   page?: number;
@@ -40,22 +42,36 @@ export class TransactionsService {
     private readonly aiInsightsCache: AiInsightsCacheService,
   ) {}
 
-  async create(userId: number, dto: CreateTransactionDto): Promise<Transaction> {
+  async create(
+    userId: number,
+    dto: CreateTransactionDto,
+  ): Promise<Transaction> {
     // Validate account ownership
     await this.accountsService.findOne(dto.accountId, userId);
 
+    // Manually-entered transactions carry none of the extraction uncertainty
+    // the review gate exists for, so they're confirmed immediately — unlike
+    // extracted transactions, which always land reviewed: false (see
+    // extraction.service.ts and docs/phases/phase-1-reconciliation-review.md).
     const transaction = this.transactionsRepository.create({
       ...dto,
       userId,
+      reviewed: true,
     });
     const saved = await this.transactionsRepository.save(transaction);
     this.aiInsightsCache.invalidateForUser(userId);
     return saved;
   }
 
-  async findAllByUser(userId: number, filters?: TransactionFilters): Promise<PaginatedTransactionsResult> {
+  async findAllByUser(
+    userId: number,
+    filters?: TransactionFilters,
+  ): Promise<PaginatedTransactionsResult> {
     const page = Math.max(1, filters?.page ?? DEFAULT_PAGE);
-    const limit = Math.min(MAX_LIMIT, Math.max(1, filters?.limit ?? DEFAULT_LIMIT));
+    const limit = Math.min(
+      MAX_LIMIT,
+      Math.max(1, filters?.limit ?? DEFAULT_LIMIT),
+    );
     const skip = (page - 1) * limit;
 
     const qb = this.transactionsRepository
@@ -64,7 +80,14 @@ export class TransactionsService {
       .where('tx.userId = :userId', { userId });
 
     if (filters?.accountId) {
-      qb.andWhere('tx.accountId = :accountId', { accountId: filters.accountId });
+      qb.andWhere('tx.accountId = :accountId', {
+        accountId: filters.accountId,
+      });
+    }
+    if (filters?.documentId) {
+      qb.andWhere('tx.documentId = :documentId', {
+        documentId: filters.documentId,
+      });
     }
     if (filters?.type) {
       qb.andWhere('tx.type = :type', { type: filters.type });
@@ -80,12 +103,18 @@ export class TransactionsService {
     }
     const search = filters?.search?.trim();
     if (search) {
-      qb.andWhere('(tx.description ILIKE :search OR tx.category ILIKE :search)', {
-        search: `%${search}%`,
-      });
+      qb.andWhere(
+        '(tx.description ILIKE :search OR tx.category ILIKE :search)',
+        {
+          search: `%${search}%`,
+        },
+      );
     }
 
-    qb.orderBy('tx.transaction_date', 'DESC').addOrderBy('tx.created_at', 'DESC');
+    qb.orderBy('tx.transaction_date', 'DESC').addOrderBy(
+      'tx.created_at',
+      'DESC',
+    );
 
     const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
@@ -104,7 +133,11 @@ export class TransactionsService {
     return transaction;
   }
 
-  async update(id: number, userId: number, dto: UpdateTransactionDto): Promise<Transaction> {
+  async update(
+    id: number,
+    userId: number,
+    dto: UpdateTransactionDto,
+  ): Promise<Transaction> {
     const transaction = await this.transactionsRepository.findOne({
       where: { id, userId },
     });
@@ -134,5 +167,43 @@ export class TransactionsService {
 
   async countByUser(userId: number): Promise<number> {
     return this.transactionsRepository.count({ where: { userId } });
+  }
+
+  /**
+   * Re-runs deterministic categorization (categorization.util.ts) over every
+   * one of the user's existing transactions. Needed because that logic is
+   * applied at extraction time — transactions saved before a categorization
+   * rule existed (or before it was improved) keep whatever category they
+   * were saved with until this is run. Only writes rows whose category
+   * actually changes.
+   */
+  async recategorizeAll(
+    userId: number,
+  ): Promise<{ updated: number; total: number }> {
+    const transactions = await this.transactionsRepository.find({
+      where: { userId },
+      select: ['id', 'description', 'type', 'category'],
+    });
+
+    const toUpdate = transactions
+      .map((tx) => ({
+        tx,
+        newCategory: categorizeTransaction(
+          tx.description ?? undefined,
+          tx.type,
+        ),
+      }))
+      .filter(({ tx, newCategory }) => tx.category !== newCategory);
+
+    if (toUpdate.length > 0) {
+      await this.transactionsRepository.manager.transaction(async (manager) => {
+        for (const { tx, newCategory } of toUpdate) {
+          await manager.update(Transaction, tx.id, { category: newCategory });
+        }
+      });
+      this.aiInsightsCache.invalidateForUser(userId);
+    }
+
+    return { updated: toUpdate.length, total: transactions.length };
   }
 }

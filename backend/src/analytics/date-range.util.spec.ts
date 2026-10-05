@@ -1,4 +1,10 @@
-import { toIsoDate, getStartDateForRange, dateRangeFromRelative, pad2 } from './date-range.util';
+import {
+  toIsoDate,
+  getStartDateForRange,
+  dateRangeFromRelative,
+  previousPeriod,
+  pad2,
+} from './date-range.util';
 
 describe('pad2', () => {
   it('pads single digits with a leading zero', () => {
@@ -131,5 +137,43 @@ describe('dateRangeFromRelative', () => {
       from: '1970-01-01',
       to: '2026-03-15',
     });
+  });
+});
+
+describe('previousPeriod', () => {
+  it('shifts a full calendar month back by its own length (30 days)', () => {
+    // Sep 1-30 is 30 days; the 30 days immediately before Sep 1 are Aug 2-31.
+    expect(previousPeriod('2026-09-01', '2026-09-30')).toEqual({
+      from: '2026-08-02',
+      to: '2026-08-31',
+    });
+  });
+
+  it('shifts a partial-month window (e.g. "this month" so far) by its own shorter length', () => {
+    // Oct 1-5 is 5 days; the 5 days immediately before are Sep 26-30.
+    expect(previousPeriod('2026-10-01', '2026-10-05')).toEqual({
+      from: '2026-09-26',
+      to: '2026-09-30',
+    });
+  });
+
+  it('handles a single-day period', () => {
+    expect(previousPeriod('2026-03-15', '2026-03-15')).toEqual({
+      from: '2026-03-14',
+      to: '2026-03-14',
+    });
+  });
+
+  it('rolls back across a year boundary', () => {
+    // Jan 1-5 is 5 days; immediately before is Dec 27-31 of the prior year.
+    expect(previousPeriod('2026-01-01', '2026-01-05')).toEqual({
+      from: '2025-12-27',
+      to: '2025-12-31',
+    });
+  });
+
+  it('produces a contiguous, non-overlapping period ending the day before "from"', () => {
+    const { to } = previousPeriod('2026-06-10', '2026-06-20');
+    expect(to).toBe('2026-06-09');
   });
 });

@@ -1,8 +1,11 @@
 # Phase 3 — RAG (Grounded Chat + Semantic Search + Fine-Print Q&A)
 
-**Status:** ⬜ Not started.
-**Depends on:** Phase 1 (reviewed-transaction gate; RAG answers should respect it
-where they touch transaction data).
+**Status:** ✅ Done.
+**Depends on:** Phase 1 ✅ done — the `reviewed = true` gate exists now
+(`AnalyticsService.baseFilteredQuery`/`baseTxQuery`). Any new transaction-touching
+query this phase adds (e.g. "semantic search across transactions") should reuse or
+replicate that gate the same way, so unreviewed/unconfirmed transactions never leak
+into a RAG answer either.
 
 ## Goal
 
@@ -71,5 +74,60 @@ at risk by this change.
 
 `backend/src/entities/document-chunk.entity.ts`, `backend/src/entities/document.entity.ts`,
 `backend/src/documents/gemini.service.ts`, `backend/src/documents/extraction.service.ts`,
+`backend/src/documents/document-chunks.service.ts` (new),
+`backend/src/documents/chunking.util.ts` (new),
 `backend/src/analytics/rag.service.ts` (new), `backend/src/analytics/analytics.service.ts`,
 `frontend/src/api/analytics.ts`, `frontend/src/pages/DashboardPage.tsx`.
+
+## What was built
+
+Matches the plan above, with these deviations/findings worth recording:
+
+- **Embedding model: `gemini-embedding-001`, not `text-embedding-004`.** The plan's
+  model had been deprecated/removed by the time this was built — a live API call
+  returned `404 models/text-embedding-004 is not found`. `ModelService.ListModels`
+  showed only `gemini-embedding-001`/`gemini-embedding-2(-preview)` support
+  `embedContent` now. `gemini-embedding-001` defaults to **3072**-dimensional output
+  (Matryoshka representation learning), which doesn't fit `DocumentChunk.embedding`'s
+  `vector(768)` column — fixed by passing an explicit `outputDimensionality: 768` on
+  every embed request. That field isn't in the installed
+  `@google/generative-ai@0.24.1` SDK's `EmbedContentRequest` type (confirmed via a
+  raw REST call that the API itself accepts it regardless), so `gemini.service.ts`
+  intersects it in locally (`EmbedRequestWithDimensions`) rather than waiting on an
+  SDK upgrade. If this SDK is ever upgraded, check whether the type now declares
+  `outputDimensionality` natively and drop the intersection type if so.
+- **The intent classifier needed a prompt fix to make the "fallback" decision
+  actually fire.** `parseFinanceChatIntent()`'s `unknown` case was described as
+  "chitchat, unsupported" — live-tested, a fine-print question like "What does my
+  statement say about late payment fees?" got misclassified as a numeric intent
+  (the deterministic path's "no transactions found" message) because it mentions a
+  rupee amount. Fixed by rewording `unknown` in the prompt
+  (`gemini.service.ts::parseFinanceChatIntent`) to explicitly say statement-text/
+  fine-print/terms questions belong there even when they mention money, and not to
+  force them into `compare_amount`/`sum_debits`/`investment_estimate`. Re-verified
+  live after the fix — same question then correctly routed to RAG.
+- **Numeric grounding is verified, not just prompted.** Per the financial-correctness
+  invariant and this phase's own verification plan ("doesn't state a number not
+  present in the retrieved text"), `RagService.verifyGroundedAnswer()` extracts every
+  number from the model's answer and checks it appears in the retrieved excerpts —
+  same pattern as `AnalyticsService.verifyAnomalies`, applied to free text instead of
+  structured transactions. An answer that fails isn't dropped (unlike a structured
+  field, mangling prose text isn't safe) — it gets a disclaimer appended instead.
+- **Indexing is awaited inside `process()`, not a second fire-and-forget layer.**
+  The plan called for firing chunk+embed off detached from the rest of extraction.
+  `ExtractionService.process()` itself is already invoked fire-and-forget by
+  `DocumentsService.upload()`, so a document's status/transactions are never blocked
+  on indexing regardless of whether indexing is awaited one level further in —
+  nesting a second detached async step would only have added test nondeterminism for
+  no real latency benefit. `indexDocumentChunks()` still has its own try/catch (an
+  embedding/DB failure never flips a document to FAILED), matching the planned
+  reliability guarantee.
+- **Vision-path (scanned/image) documents are never indexed.** No raw text is ever
+  extracted on that path today, so `rawDocumentText` stays `null` and
+  `indexDocumentChunks` is skipped — consistent with "don't guess," not a regression.
+- Verified end-to-end against the real backend with live Gemini calls: a statement
+  with fine-print fee clauses produced real 768-dim embeddings in `document_chunks`,
+  a grounded chat question returned an accurate, correctly-cited answer with
+  `sources`, a plain numeric question still routed through the unchanged
+  deterministic path (no `sources` field), and the citation tag rendered correctly
+  in the Dashboard chat UI in a real browser.

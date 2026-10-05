@@ -12,9 +12,17 @@ This project is mid-build on a phased MVP plan. **Before doing implementation wo
 
 Akira (IEOP) is a two-package monorepo: a NestJS + TypeORM backend and a React 19 + Vite frontend, backed by Supabase PostgreSQL (with `pgvector`) and Supabase Storage. Its core function is AI-driven bank statement processing: users upload PDF/image statements, the backend extracts transactions (via deterministic per-bank parsers or Gemini as a fallback), and the frontend shows analytics, AI-generated insights, and a finance chat assistant over that data.
 
-No repo-root `package.json` — `backend/` and `frontend/` are independent npm projects, run and linted separately.
+`backend/` and `frontend/` are independent npm projects, built/tested/linted separately — the root `package.json` only exists as a dev convenience to run both dev servers together (see below); it has no build/lint/test scripts of its own.
 
 ## Commands
+
+### Both at once (repo root)
+```bash
+npm install          # one-time, installs only the root `concurrently` dev dependency
+npm run install:all  # installs backend/ and frontend/ deps in one step
+npm run dev           # runs backend start:dev + frontend dev concurrently (ports 3000 + 5173)
+```
+Requires `backend/.env` and `frontend/.env` to already be set up (see Environment Variables below) — this just launches both, it doesn't configure them.
 
 ### Backend (`cd backend`)
 ```bash

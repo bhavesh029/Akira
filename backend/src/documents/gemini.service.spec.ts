@@ -1,14 +1,19 @@
 const mockGenerateContent = jest.fn();
+const mockEmbedContent = jest.fn();
+const mockBatchEmbedContents = jest.fn();
 
 jest.mock('@google/generative-ai', () => ({
   GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
-    getGenerativeModel: jest
-      .fn()
-      .mockReturnValue({ generateContent: mockGenerateContent }),
+    getGenerativeModel: jest.fn().mockReturnValue({
+      generateContent: mockGenerateContent,
+      embedContent: mockEmbedContent,
+      batchEmbedContents: mockBatchEmbedContents,
+    }),
   })),
 }));
 
 import { GeminiService } from './gemini.service';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 function geminiResponse(text: string) {
   return { response: { text: () => text } };
@@ -31,6 +36,26 @@ describe('GeminiService', () => {
     description: 'Amazon Purchase',
     category: 'Shopping',
   };
+
+  describe('extractionConfig (thinking disabled)', () => {
+    it('passes thinkingConfig.thinkingBudget: 0 to the text and vision models — gemini-2.5-flash thinking tokens count against maxOutputTokens and were observed eating almost the entire 8192-token budget on a real statement (7861 of 8192), truncating the JSON output mid-array and silently discarding every transaction after the cutoff', () => {
+      const MockedCtor = GoogleGenerativeAI as unknown as jest.Mock;
+      const instance = MockedCtor.mock.results[0].value;
+      const calls = instance.getGenerativeModel.mock.calls as Array<
+        [{ model: string; generationConfig?: { thinkingConfig?: unknown } }]
+      >;
+
+      const flashCalls = calls.filter(
+        ([args]) => args.model === 'gemini-2.5-flash',
+      );
+      expect(flashCalls.length).toBe(2); // this.model and this.visionModel
+      for (const [args] of flashCalls) {
+        expect(args.generationConfig?.thinkingConfig).toEqual({
+          thinkingBudget: 0,
+        });
+      }
+    });
+  });
 
   describe('extractTransactionsFromText', () => {
     it('sends the extraction prompt + text and returns parsed transactions', async () => {
@@ -67,6 +92,153 @@ describe('GeminiService', () => {
         inlineData: { data: buffer.toString('base64'), mimeType: 'image/png' },
       });
       expect(result).toEqual([validTx]);
+    });
+  });
+
+  describe('extractDocumentBalances', () => {
+    it('returns the parsed opening/closing balance from a clean JSON response', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 1000.5, "closing_balance": 650}'),
+      );
+
+      const result = await service.extractDocumentBalances('statement text');
+
+      const promptArg = mockGenerateContent.mock.calls[0][0];
+      expect(promptArg).toContain('opening and closing balance');
+      expect(promptArg).toContain('statement text');
+      expect(result).toEqual({ opening_balance: 1000.5, closing_balance: 650 });
+    });
+
+    it('strips ```json ... ``` markdown fences before parsing', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(
+          '```json\n{"opening_balance": 100, "closing_balance": 50}\n```',
+        ),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: 100, closing_balance: 50 });
+    });
+
+    it('returns nulls for whichever field is missing or null in the response', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 100, "closing_balance": null}'),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: 100, closing_balance: null });
+    });
+
+    it('returns both nulls when the response is valid JSON but not an object (e.g. an array)', async () => {
+      mockGenerateContent.mockResolvedValue(geminiResponse('[1, 2, 3]'));
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: null });
+    });
+
+    it('returns both nulls (never throws) when the response is not valid JSON', async () => {
+      mockGenerateContent.mockResolvedValue(geminiResponse('not json at all'));
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: null });
+    });
+
+    it('returns both nulls (never throws) when the API call itself fails', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('network error'));
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: null });
+    });
+
+    it('sanitizes a non-finite balance (e.g. a string that is not a number) to null', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse(
+          '{"opening_balance": "not-a-number", "closing_balance": 50}',
+        ),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: null, closing_balance: 50 });
+    });
+
+    it('allows a zero or negative balance (overdraft), unlike a transaction amount', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 0, "closing_balance": -500.5}'),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result).toEqual({ opening_balance: 0, closing_balance: -500.5 });
+    });
+
+    it('rounds a balance to 2 decimal places', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('{"opening_balance": 100.126, "closing_balance": null}'),
+      );
+
+      const result = await service.extractDocumentBalances('text');
+      expect(result.opening_balance).toBe(100.13);
+    });
+  });
+
+  describe('embedText', () => {
+    it('returns the embedding values from embedContent', async () => {
+      mockEmbedContent.mockResolvedValue({
+        embedding: { values: [0.1, 0.2, 0.3] },
+      });
+
+      const result = await service.embedText('what are the late fees?');
+
+      expect(mockEmbedContent).toHaveBeenCalledWith({
+        content: { role: 'user', parts: [{ text: 'what are the late fees?' }] },
+        outputDimensionality: 768,
+      });
+      expect(result).toEqual([0.1, 0.2, 0.3]);
+    });
+  });
+
+  describe('embedBatch', () => {
+    it('returns [] without calling the API for an empty input', async () => {
+      const result = await service.embedBatch([]);
+      expect(result).toEqual([]);
+      expect(mockBatchEmbedContents).not.toHaveBeenCalled();
+    });
+
+    it('embeds every text and returns values in the same order', async () => {
+      mockBatchEmbedContents.mockResolvedValue({
+        embeddings: [{ values: [0.1] }, { values: [0.2] }],
+      });
+
+      const result = await service.embedBatch(['chunk one', 'chunk two']);
+
+      expect(mockBatchEmbedContents).toHaveBeenCalledWith({
+        requests: [
+          {
+            content: { role: 'user', parts: [{ text: 'chunk one' }] },
+            outputDimensionality: 768,
+          },
+          {
+            content: { role: 'user', parts: [{ text: 'chunk two' }] },
+            outputDimensionality: 768,
+          },
+        ],
+      });
+      expect(result).toEqual([[0.1], [0.2]]);
+    });
+  });
+
+  describe('generateText', () => {
+    it('returns the trimmed response text', async () => {
+      mockGenerateContent.mockResolvedValue(
+        geminiResponse('  the answer is X  '),
+      );
+      const result = await service.generateText('some prompt');
+      expect(result).toBe('the answer is X');
+    });
+
+    it('returns an empty string (never throws) when the API call fails', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('network error'));
+      const result = await service.generateText('some prompt');
+      expect(result).toBe('');
     });
   });
 
@@ -264,6 +436,12 @@ describe('GeminiService', () => {
       const result = await extract(raw);
       expect(result).toEqual([validTx]);
     });
+
+    it('rejects a non-object array element instead of throwing', async () => {
+      const raw = JSON.stringify(['just a string', validTx]);
+      const result = await extract(raw);
+      expect(result).toEqual([validTx]);
+    });
   });
 
   describe('generateInsights', () => {
@@ -301,6 +479,48 @@ describe('GeminiService', () => {
         subscriptions: [],
         anomalies: [],
       });
+    });
+
+    it('returns a billing-specific fallback (never an unhandled rejection) when the API call fails with a 402 billing error', async () => {
+      mockGenerateContent.mockRejectedValue(
+        Object.assign(new Error('Your prepayment credits are depleted.'), {
+          status: 402,
+        }),
+      );
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.anomalies).toEqual([]);
+      expect(result.summary).toMatch(/billing credits/i);
+    });
+
+    it('returns a generic fallback (never an unhandled rejection) when the API call fails for any other reason', async () => {
+      mockGenerateContent.mockRejectedValue(new Error('network error'));
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.anomalies).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
+    });
+
+    it('handles a thrown object with no usable message property', async () => {
+      mockGenerateContent.mockRejectedValue({ code: 'ECONNRESET' });
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
+    });
+
+    it('handles a thrown non-object value (e.g. a plain string)', async () => {
+      mockGenerateContent.mockRejectedValue('a plain string rejection');
+
+      const result = await service.generateInsights('prompt');
+
+      expect(result.subscriptions).toEqual([]);
+      expect(result.summary).toMatch(/temporarily unavailable/i);
     });
   });
 
@@ -340,7 +560,7 @@ describe('GeminiService', () => {
 
     it('parses a fully-populated valid response', async () => {
       const raw = {
-        intent: 'compare_amount',
+        intent: 'list_transactions',
         filters: {
           from: '2026-01-01',
           to: '2026-01-31',
@@ -348,14 +568,18 @@ describe('GeminiService', () => {
           accountId: 1,
           bankName: 'HDFC',
           category: 'Food',
-          amount: 10000,
-          compareOp: 'gte',
+          amountMin: 1000,
+          amountMax: 10000,
+          description: 'Swiggy',
+          type: 'DEBIT',
+          sortBy: 'date',
+          sortDir: 'asc',
         },
         clarifyMessage: null,
       };
       const result = await parse(JSON.stringify(raw));
       expect(result).toEqual({
-        intent: 'compare_amount',
+        intent: 'list_transactions',
         filters: {
           from: '2026-01-01',
           to: '2026-01-31',
@@ -363,8 +587,12 @@ describe('GeminiService', () => {
           accountId: 1,
           bankName: 'HDFC',
           category: 'Food',
-          amount: 10000,
-          compareOp: 'gte',
+          amountMin: 1000,
+          amountMax: 10000,
+          description: 'Swiggy',
+          type: 'DEBIT',
+          sortBy: 'date',
+          sortDir: 'asc',
         },
         clarifyMessage: null,
       });
@@ -381,6 +609,16 @@ describe('GeminiService', () => {
       expect(result.intent).toBe('unknown');
     });
 
+    it.each(['category_breakdown', 'compare_periods'] as const)(
+      'accepts the new intent "%s"',
+      async (intent) => {
+        const result = await parse(
+          JSON.stringify({ intent, filters: {}, clarifyMessage: null }),
+        );
+        expect(result.intent).toBe(intent);
+      },
+    );
+
     it('defaults all filters when the filters object is missing entirely', async () => {
       const result = await parse(JSON.stringify({ intent: 'sum_debits' }));
       expect(result.filters).toEqual({
@@ -390,8 +628,12 @@ describe('GeminiService', () => {
         accountId: null,
         bankName: null,
         category: null,
-        amount: null,
-        compareOp: null,
+        amountMin: null,
+        amountMax: null,
+        description: null,
+        type: null,
+        sortBy: null,
+        sortDir: null,
       });
     });
 
@@ -400,7 +642,7 @@ describe('GeminiService', () => {
         JSON.stringify({ intent: 'sum_debits', filters: [1, 2, 3] }),
       );
       expect(result.filters.relative).toBeNull();
-      expect(result.filters.amount).toBeNull();
+      expect(result.filters.amountMin).toBeNull();
     });
 
     it('rejects an invalid "relative" value', async () => {
@@ -413,14 +655,37 @@ describe('GeminiService', () => {
       expect(result.filters.relative).toBeNull();
     });
 
-    it('rejects an invalid "compareOp" value', async () => {
+    it('rejects an invalid "type" value', async () => {
       const result = await parse(
         JSON.stringify({
-          intent: 'compare_amount',
-          filters: { compareOp: 'roughly' },
+          intent: 'list_transactions',
+          filters: { type: 'BOTH' },
         }),
       );
-      expect(result.filters.compareOp).toBeNull();
+      expect(result.filters.type).toBeNull();
+    });
+
+    it('rejects invalid "sortBy"/"sortDir" values', async () => {
+      const result = await parse(
+        JSON.stringify({
+          intent: 'list_transactions',
+          filters: { sortBy: 'relevance', sortDir: 'sideways' },
+        }),
+      );
+      expect(result.filters.sortBy).toBeNull();
+      expect(result.filters.sortDir).toBeNull();
+    });
+
+    it('accepts valid "type"/"sortBy"/"sortDir" values', async () => {
+      const result = await parse(
+        JSON.stringify({
+          intent: 'list_transactions',
+          filters: { type: 'CREDIT', sortBy: 'date', sortDir: 'asc' },
+        }),
+      );
+      expect(result.filters.type).toBe('CREDIT');
+      expect(result.filters.sortBy).toBe('date');
+      expect(result.filters.sortDir).toBe('asc');
     });
 
     it('floors a numeric accountId', async () => {
@@ -444,41 +709,45 @@ describe('GeminiService', () => {
       expect(result.filters.accountId).toBeNull();
     });
 
-    it('keeps a valid numeric amount', async () => {
-      const result = await parse(
-        JSON.stringify({ intent: 'compare_amount', filters: { amount: 5000 } }),
-      );
-      expect(result.filters.amount).toBe(5000);
-    });
-
-    it('parses a comma-formatted amount string', async () => {
+    it('keeps a valid numeric amountMin/amountMax', async () => {
       const result = await parse(
         JSON.stringify({
           intent: 'compare_amount',
-          filters: { amount: '10,000' },
+          filters: { amountMin: 5000, amountMax: 9000 },
         }),
       );
-      expect(result.filters.amount).toBe(10000);
+      expect(result.filters.amountMin).toBe(5000);
+      expect(result.filters.amountMax).toBe(9000);
     });
 
-    it('rejects a non-numeric amount string', async () => {
+    it('parses a comma-formatted amountMin string', async () => {
       const result = await parse(
         JSON.stringify({
           intent: 'compare_amount',
-          filters: { amount: 'lots' },
+          filters: { amountMin: '10,000' },
         }),
       );
-      expect(result.filters.amount).toBeNull();
+      expect(result.filters.amountMin).toBe(10000);
     });
 
-    it('rejects an empty-string amount', async () => {
+    it('rejects a non-numeric amountMin string', async () => {
       const result = await parse(
         JSON.stringify({
           intent: 'compare_amount',
-          filters: { amount: '   ' },
+          filters: { amountMin: 'lots' },
         }),
       );
-      expect(result.filters.amount).toBeNull();
+      expect(result.filters.amountMin).toBeNull();
+    });
+
+    it('rejects an empty-string amountMax', async () => {
+      const result = await parse(
+        JSON.stringify({
+          intent: 'compare_amount',
+          filters: { amountMax: '   ' },
+        }),
+      );
+      expect(result.filters.amountMax).toBeNull();
     });
 
     it('trims a non-empty clarifyMessage', async () => {
@@ -534,8 +803,12 @@ describe('GeminiService', () => {
           accountId: null,
           bankName: null,
           category: null,
-          amount: null,
-          compareOp: null,
+          amountMin: null,
+          amountMax: null,
+          description: null,
+          type: null,
+          sortBy: null,
+          sortDir: null,
         },
         clarifyMessage: null,
       });

@@ -1,41 +1,54 @@
 # Phase 2 — Harden the 6 Bank Parsers
 
-**Status:** ⬜ **Deferred — blocked on you.** Do not start this phase's parser
-implementation work without real/representative sample statement text.
+**Status:** 🚧 **Partially done.** ICICI, HSBC, UCO, and Axis are implemented and
+verified against real sample statements. PNB is still blocked on a sample; HDFC's
+placeholder regex is still unverified (no sample provided for either).
 
-## Why this is blocked
+## What's done
 
-5 of the 6 bank parsers (`backend/src/documents/parsers/{icici,hsbc,uco,pnb,axis}.parser.ts`)
-are stubs: `canParse()` does a bank-name substring match, `parse()` unconditionally
-`return []`. HDFC's parser has a real regex but it's explicitly marked
-`// TODO: to be implemented once a sample PDF text is provided` and has never been
-verified against a real statement.
+- **ICICI** (savings account) and **UCO** (savings account): real parsers. The text
+  extraction loses the debit/credit column — each line ends with two bare numbers
+  (amount, running balance) in an order that isn't even consistent line-to-line —
+  so `backend/src/documents/parsers/balance-delta.util.ts` resolves both against
+  the running balance arithmetically, only reporting a transaction when it
+  provably reconciles. Verified: 342/344 real transaction-shaped lines in the
+  ICICI sample resolved correctly; UCO's computed totals match the statement's own
+  printed deposit/withdrawal/closing-balance figures exactly.
+- **HSBC** and **Axis**: the samples provided turned out to be **credit card**
+  statements, not savings/current accounts — tab-separated (HSBC, with a trailing
+  `CR` marker and no year on each line) and single-line-with-`Dr`/`Cr`-marker
+  (Axis) respectively. Both verified: totals reconcile exactly against each
+  statement's own printed summary figures.
+- If an HSBC/Axis *savings* statement (a different layout than the sample
+  provided) is ever uploaded, the parser is expected to match zero lines and fall
+  back to Gemini automatically (Phase 0's existing safety net), not misparse.
 
-Guessing column layouts for the other 5 banks without real samples would just
-introduce a *different* kind of silent wrong-extraction — the opposite of the
-accuracy goal this whole MVP pass is about. Phase 0's fallback fix (falls back to
-Gemini when a matched parser returns nothing) plus Phase 1's mandatory
-reconciliation/review are the interim safety net.
+## Still blocked
 
-## What's needed to unblock this
+- **PNB**: no sample provided yet — still a stub returning `[]` (falls back to
+  Gemini).
+- **HDFC**: placeholder regex, never verified against a real sample — unchanged
+  this pass since none was provided.
 
-For each of ICICI, HSBC, UCO, PNB, Axis (and to verify HDFC): a real, or
-realistic/representative, statement text sample — redact account numbers and
-personal details first. Share it and the corresponding parser gets implemented and
-tested against it directly.
+## What's needed to unblock the rest
 
-## Planned implementation once unblocked
+A real, or realistic/representative, statement text sample for PNB (and ideally
+one for HDFC to verify the existing regex) — redact account numbers and personal
+details first. Drop in `backend/test-fixtures/statements/` (gitignored) and the
+corresponding parser gets implemented/verified against it directly.
 
-1. Implement real `parse()` logic per bank in
-   `backend/src/documents/parsers/{bank}.parser.ts` against the real sample text.
-2. Widen `BankParser.parse()`'s return shape (`bank-parser.interface.ts`) from
-   `ExtractedTransaction[]` to include `openingBalance`/`closingBalance`, feeding
-   Phase 1's reconciliation check. Coordinate with however Phase 1 shaped that
-   plumbing so it isn't built twice.
-3. Add real unit tests per parser using the actual sample fixture text — this is
-   the single highest-leverage place in the whole plan to add test coverage, since
-   wrong parsing directly corrupts financial data. See
-   `.agents/rules/build_workflow.md` for the testing bar every phase should meet.
+## Remaining work (PNB, and verifying HDFC)
+
+1. Implement real `parse()` logic once a sample exists, following the same
+   pattern as ICICI/UCO/HSBC/Axis (reuse `balance-delta.util.ts` if PNB's layout
+   also loses its debit/credit column the same way).
+2. Add real unit tests using synthetic text that mirrors the real sample's
+   structure (never commit the actual sample text — it stays in the gitignored
+   `test-fixtures/` folder).
+3. `BankParser.parse()`'s return shape could later be widened to include
+   `openingBalance`/`closingBalance` if Phase 1's reconciliation work wants
+   parser-reported balances rather than deriving them itself — not done yet,
+   revisit when Phase 1 is picked up.
 
 ## Verification plan
 

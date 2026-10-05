@@ -128,6 +128,12 @@
   color: var(--color-text-muted);
 }
 
+.transactions-unreviewed-badge {
+  margin-left: var(--space-2);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .transactions-col-amount {
   text-align: right !important;
 }

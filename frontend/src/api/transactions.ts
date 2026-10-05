@@ -9,6 +9,7 @@ export interface TransactionItem {
   description: string | null;
   accountId: number;
   documentId: number | null;
+  reviewed: boolean;
   account?: {
     id: number;
     bank_name: string;
@@ -29,6 +30,7 @@ export interface CreateTransactionPayload {
 
 export interface TransactionFilters {
   accountId?: number;
+  documentId?: number;
   type?: 'CREDIT' | 'DEBIT';
   category?: string;
   from?: string;
@@ -57,8 +59,10 @@ export const transactionsApi = {
   create: (data: CreateTransactionPayload) =>
     api.post<TransactionItem>('/transactions', data),
 
-  update: (id: number, data: Partial<CreateTransactionPayload>) =>
-    api.patch<TransactionItem>(`/transactions/${id}`, data),
+  update: (
+    id: number,
+    data: Partial<CreateTransactionPayload> & { reviewed?: boolean },
+  ) => api.patch<TransactionItem>(`/transactions/${id}`, data),
 
   remove: (id: number) =>
     api.delete(`/transactions/${id}`),

@@ -24,6 +24,11 @@ export class FindTransactionsQueryDto {
   accountId?: number;
 
   @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  documentId?: number;
+
+  @IsOptional()
   @IsEnum(TransactionType)
   type?: TransactionType;
 

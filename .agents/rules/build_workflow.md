@@ -31,8 +31,9 @@ agent doing implementation work in this repo, in addition to `auto_read_context.
   amounts/frequencies, and anything similar — the LLM may *identify* a candidate
   (e.g. "this looks like a recurring vendor") but must never *state* the amount or
   cadence itself.
-- **Reuse `AnalyticsService.baseFilteredQuery`** (and, once Phase 1 lands, its
-  `reviewed = true` gate) for any new transaction-derived aggregate — budgets
+- **Reuse `AnalyticsService.baseFilteredQuery`** (which now also carries Phase 1's
+  `reviewed = true` gate; `baseTxQuery`, used only by `financeChat`, carries the
+  same gate independently) for any new transaction-derived aggregate — budgets
   status, net worth, recurring-bill detection. Do not write a new independent
   `userId`/`accountId`/`dateRange` filter block; that duplication is exactly what
   Phase 0 removed and it must not come back.

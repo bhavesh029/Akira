@@ -1,6 +1,6 @@
 # Phase 1 — Reconciliation + Mandatory Review Workflow
 
-**Status:** ⬜ Not started.
+**Status:** ✅ Done.
 **Depends on:** Phase 0 (shared query helper, decimal transformer, migration tooling).
 
 ## Goal
@@ -79,3 +79,42 @@ review step.
 `backend/src/analytics/analytics.service.ts`, `frontend/src/api/transactions.ts`,
 `frontend/src/pages/DocumentsPage.tsx`, `frontend/src/pages/ReviewPage.tsx` (new),
 `frontend/src/pages/TransactionsPage.tsx`.
+
+## What was built
+
+Matches the plan above with one deliberate deviation, plus a couple of
+implementation details worth recording:
+
+- **Balance capture is bank-agnostic, not HDFC-specific.** Rather than widening
+  `BankParser.parse()`'s return shape to carry HDFC's discarded trailing balance
+  group (as originally planned), `GeminiService.extractDocumentBalances()` runs once
+  per text-based document — independently of which deterministic parser matched (or
+  whether one matched at all) — and looks for an explicitly-printed opening/closing
+  balance. This covers all banks uniformly instead of just HDFC, at the cost of one
+  extra Gemini call per document, and needed no `BankParser` interface change.
+  Scanned/image (vision-path) documents have no raw text to run this against, so
+  they land on `reconciliation_status: NOT_APPLICABLE` — which correctly routes them
+  to mandatory per-row review, the same safe fallback as "no balance found."
+- **Two base-query choke points, not one.** `AnalyticsService` has
+  `baseFilteredQuery` (used by `getSummary`/`getAiInsights`) and a separate
+  `baseTxQuery` used only by `financeChat`'s deterministic-intent path (different
+  filter shape: explicit `from`/`to` + `accountIds[]` rather than a `dateRange`
+  keyword). Both now carry `.andWhere('tx.reviewed = true')` independently, since
+  neither call through the other.
+- **Manually-created transactions (`POST /transactions`) are `reviewed: true`
+  immediately** — they carry none of the extraction uncertainty the gate exists
+  for, so forcing them through per-row review would be pure friction.
+- **Bulk confirm is one DB transaction** (`PATCH /documents/:id/confirm-review`,
+  `DocumentsService.confirmReview`), not N sequential `PATCH /transactions/:id`
+  calls from the frontend.
+- The migration (`backend/src/migrations/1791136200000-ReconciliationAndReview.ts`)
+  was hand-written and verified independently against a scratch Postgres database
+  (clean `up`, clean `down`) rather than CLI-generated — the local dev DB's
+  `synchronize: true` had already applied the equivalent schema by the time the
+  migration was written, so there was nothing left for `migration:generate` to diff.
+- Verified end-to-end against the real backend (live Gemini calls, not mocks): a
+  MATCHED statement reconciled to the exact expected delta (0), a deliberately-off
+  statement correctly computed `MISMATCH` with the exact expected delta, analytics
+  totals excluded unreviewed transactions and included them immediately after
+  confirm, and the Review page (bulk confirm + per-row edit/confirm) was exercised
+  in a real browser.
